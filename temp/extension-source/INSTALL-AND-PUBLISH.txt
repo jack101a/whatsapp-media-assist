@@ -1,0 +1,10 @@
+1. Deploy and validate the licensing API using DEPLOYMENT.md.
+2. Extract the Chrome package.
+3. Open chrome://extensions and enable Developer mode.
+4. Load the extracted folder containing manifest.json.
+5. Test sign-in, checkout, payment activation and Pro pipelines.
+6. Test real WhatsApp photo, HD photo, image-document and PDF viewers.
+7. Replace support/security placeholder emails in the policy files.
+8. Host the privacy policy at a public HTTPS URL.
+9. Upload the Chrome ZIP to Chrome Web Store.
+10. Upload the Firefox ZIP and public source archive to Mozilla when requested.

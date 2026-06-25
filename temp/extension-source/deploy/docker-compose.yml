@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediaassist
+      POSTGRES_USER: mediaassist
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - mediaassist_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediaassist -d mediaassist"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [mediaassist]
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    build:
+      context: ../server
+    restart: unless-stopped
+    env_file: ../server/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    secrets:
+      - entitlement_private_key
+    ports:
+      - "127.0.0.1:8787:8787"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/healthz')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks: [mediaassist]
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+secrets:
+  entitlement_private_key:
+    file: ../owner-secrets/entitlement-private.pem
+
+volumes:
+  mediaassist_db:
+
+networks:
+  mediaassist:

@@ -1,0 +1,9 @@
+*.zip
+node_modules/
+.output/
+__pycache__/
+.env
+.venv
+venv/
+.wxt/
+
