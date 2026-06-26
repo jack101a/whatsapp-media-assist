@@ -14,11 +14,7 @@ class Settings(BaseSettings):
     app_name: str = 'Media Assist'
     api_base_url: HttpUrl = 'http://localhost:8787'
     frontend_success_url: HttpUrl = 'http://localhost:8787/payment-complete'
-
-    # SQLite by default — lightweight, zero-config, perfectly adequate for this
-    # scale. Override via DATABASE_URL env var to use PostgreSQL in production
-    # if needed, but SQLite on a single server is strongly preferred.
-    database_url: str = 'sqlite:///./mediaassist.db'
+    database_url: str = 'sqlite:////data/media-assist.db'
 
     jwt_secret: str = Field(min_length=32)
     otp_pepper: str = Field(min_length=32)
@@ -32,22 +28,16 @@ class Settings(BaseSettings):
     otp_max_attempts: int = 5
     otp_ip_hourly_limit: int = 12
     otp_email_daily_limit: int = 12
-
-    # Single-device policy: logging in on a new device automatically signs out
-    # the previous one. max_devices is kept for the DB query logic but is always 1.
     max_devices: int = 1
-
-    entitlement_refresh_hours: int = 24
-    entitlement_grace_hours: int = 72
+    entitlement_refresh_minutes: int = 10
+    entitlement_grace_minutes: int = 15
     annual_license_days: int = 365
+    max_settings_bytes: int = 262_144
 
-    # Pricing — one plan, two currencies.
-    # INR: ₹499 / year  (Razorpay amount in paise:  49900)
-    # USD: $7.99 / year (Razorpay amount in cents:    799)
-    price_inr_minor: int = 49900
-    price_usd_minor: int = 799
+    price_inr_minor: int = 50000
+    price_usd_minor: int = 499
     enable_inr_checkout: bool = True
-    enable_usd_checkout: bool = True  # International payments enabled
+    enable_usd_checkout: bool = False
 
     razorpay_key_id: str = ''
     razorpay_key_secret: str = ''
@@ -74,6 +64,5 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-
 def get_settings() -> Settings:
     return Settings()

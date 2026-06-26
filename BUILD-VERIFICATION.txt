@@ -1,24 +1,20 @@
-Media Assist 1.3.0 verification
+Media Assist 1.4.0 verification
 
 Extension
 - TypeScript strict check
 - 4 test files / 11 unit tests
 - privacy source audit
-- Chrome MV3 production build
-- Firefox MV3 production build
-- browser fixture: popup, full light Options, pipeline builder, pipeline toolbar execution, media-only toolbar, live crop/rotate, anti-blink, A4 merge and multi-page PDF processing
+- Chrome and Firefox MV3 production builds
+- browser fixture: popup, full light Options, pipelines, media-only toolbar, live crop/rotate and anti-blink
+- compiled worker: A4 PDF merge, two-page PDF compression and PDF page rasterisation
 - package permission/CSP/secret audit
-- Chromium extension pack validation
-- clean-room Chrome and Firefox rebuild from the sanitized public-source ZIP
-- production npm dependency audit: 0 vulnerabilities
 
 Licensing API
 - Python compileall
-- 3 pytest tests
-- P-256 entitlement signature verification
-- Razorpay webhook HMAC verification
-- endpoint flow: OTP, device registration, checkout, signed webhook activation, duplicate-event idempotency, Pro entitlement, sign-out and refresh rejection
-- Alembic initial schema migration tested
+- 5 pytest tests
+- OTP, one-device revocation, refresh rejection and revisioned settings sync
+- clean SQLite Alembic upgrade through revision 0002
+- SQLite integrity check
 
 Environment limitation
-- Docker daemon is not available in this build container, so the final Docker image was not started here. The Python API and deployment files were validated independently. Run the live Docker and Razorpay test-mode checklist in DEPLOYMENT.md before launch.
+- Docker was not started in this build environment. Complete the live Oracle VPS, Brevo, Razorpay Test Mode and authenticated WhatsApp checklist before publishing.

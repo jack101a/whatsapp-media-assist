@@ -31,17 +31,6 @@ function visible(element: HTMLElement, rect = element.getBoundingClientRect()): 
     && rect.left < innerWidth;
 }
 
-/**
- * Lightweight rect-only visibility check — no getComputedStyle.
- * Used in the fast-path where the parent viewer is already known-visible,
- * so checking computed styles of each child is redundant.
- */
-function visibleByRect(rect: DOMRect): boolean {
-  return rect.width > 2 && rect.height > 2
-    && rect.bottom > 0 && rect.right > 0
-    && rect.top < innerHeight && rect.left < innerWidth;
-}
-
 function coversViewerArea(element: HTMLElement): boolean {
   const rect = element.getBoundingClientRect();
   if (!visible(element, rect)) return false;
@@ -112,66 +101,13 @@ export function refreshActiveMedia(media: ActiveMedia): ActiveMedia | null {
   return { ...media, rect };
 }
 
-/**
- * Searches for active media the user is currently viewing.
- *
- * @param knownViewer - A previously-identified viewer element. When supplied the
- *   search is scoped to that subtree only, avoiding an expensive full-page
- *   querySelectorAll. Falls back to a complete document scan if nothing is
- *   found inside the known viewer or if the viewer is no longer connected.
- */
-export function findActiveMedia(knownViewer?: HTMLElement | null): ActiveMedia | null {
-  const viewportArea = Math.max(1, innerWidth * innerHeight);
-
-  // ── Fast path ──────────────────────────────────────────────────────────────
-  // When we already know which overlay element is the viewer, restrict the
-  // querySelectorAll to that subtree. This is several orders of magnitude
-  // cheaper than scanning the entire WhatsApp DOM every 90 ms.
-  if (knownViewer && knownViewer.isConnected) {
-    let bestImage: ActiveImageMedia | null = null;
-    let bestImageScore = 0;
-
-    for (const image of knownViewer.querySelectorAll<HTMLImageElement>('img')) {
-      // Use the cheaper rect-only check — the viewer itself is already confirmed
-      // visible, so full getComputedStyle per child is wasteful.
-      if (image.naturalWidth < 240 || image.naturalHeight < 160) continue;
-      const rect = image.getBoundingClientRect();
-      if (!visibleByRect(rect)) continue;
-      const viewportArea = Math.max(1, innerWidth * innerHeight);
-      const area = rect.width * rect.height;
-      if (area < viewportArea * 0.075) continue;
-      if (rect.width < innerWidth * 0.28 && rect.height < innerHeight * 0.34) continue;
-      const centerXRatio = (rect.left + rect.width / 2) / innerWidth;
-      const centerYRatio = (rect.top + rect.height / 2) / innerHeight;
-      if (centerXRatio < 0.12 || centerXRatio > 0.88 || centerYRatio < 0.08 || centerYRatio > 0.92) continue;
-      // findViewer is already known — reuse knownViewer directly.
-      const candidate: ActiveImageMedia = { kind: 'image', element: image, rect, viewer: knownViewer, key: imageKey(image) };
-      const centerDistance = Math.hypot(
-        rect.left + rect.width / 2 - innerWidth / 2,
-        rect.top + rect.height / 2 - innerHeight / 2,
-      );
-      const centerBonus = Math.max(0, 1 - centerDistance / Math.hypot(innerWidth, innerHeight));
-      const score = area * (1 + centerBonus * 0.32);
-      if (score > bestImageScore) { bestImageScore = score; bestImage = candidate; }
-    }
-    if (bestImage) return bestImage;
-
-    for (const element of knownViewer.querySelectorAll<HTMLElement>('embed, object, iframe')) {
-      if (!isPdfElement(element)) continue;
-      const rect = element.getBoundingClientRect();
-      if (!visibleByRect(rect) || rect.width * rect.height < viewportArea * 0.12) continue;
-      const source = pdfSource(element);
-      return { kind: 'pdf', element, rect, viewer: knownViewer, source, key: `pdf:${source || `${Math.round(rect.width)}x${Math.round(rect.height)}`}` };
-    }
-    // Nothing found inside the known viewer — fall through to the full scan so
-    // we can detect a different viewer that may have opened.
-  }
-
-  // ── Full-page fallback scan ────────────────────────────────────────────────
+export function findActiveMedia(searchRoot: ParentNode | null = document): ActiveMedia | null {
   let bestImage: ActiveImageMedia | null = null;
   let bestImageScore = 0;
+  const viewportArea = Math.max(1, innerWidth * innerHeight);
 
-  for (const image of document.querySelectorAll<HTMLImageElement>('img')) {
+  const root = searchRoot ?? document;
+  for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
     const candidate = candidateImage(image);
     if (!candidate) continue;
     const area = candidate.rect.width * candidate.rect.height;
@@ -185,7 +121,7 @@ export function findActiveMedia(knownViewer?: HTMLElement | null): ActiveMedia |
   }
   if (bestImage) return bestImage;
 
-  for (const element of document.querySelectorAll<HTMLElement>('embed, object, iframe')) {
+  for (const element of root.querySelectorAll<HTMLElement>('embed, object, iframe')) {
     if (!isPdfElement(element)) continue;
     const rect = element.getBoundingClientRect();
     if (!visible(element, rect) || rect.width * rect.height < viewportArea * 0.12) continue;

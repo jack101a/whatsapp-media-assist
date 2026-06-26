@@ -1,9 +1,10 @@
 import { PDFDocument, rgb } from 'pdf-lib';
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { MergeItem, MergeOptions } from '../src/types/media';
 import type { ProcessorRequest, ProcessorResponse } from '../src/types/processor';
 import { createId } from '../src/utils/id';
 import { A4_HEIGHT, A4_WIDTH, createA4Slots, type A4Slot as Slot } from '../src/engine/a4-layout';
+
+type PdfJsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
 
 const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<ProcessorRequest>) => void) | null;
@@ -11,6 +12,13 @@ const scope = globalThis as unknown as {
 };
 
 type Rotation = 0 | 90 | 180 | 270;
+
+let pdfjsPromise: Promise<PdfJsModule> | null = null;
+
+function loadPdfjs(): Promise<PdfJsModule> {
+  pdfjsPromise ??= import('pdfjs-dist/legacy/build/pdf.mjs');
+  return pdfjsPromise;
+}
 
 function post(message: ProcessorResponse) {
   scope.postMessage(message);
@@ -164,6 +172,7 @@ interface RasterPdfPage {
 }
 
 async function openPdf(blob: Blob, pdfWorkerUrl: string) {
+  const pdfjs = await loadPdfjs();
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return pdfjs.getDocument({ data: bytes, useWorkerFetch: false, disableAutoFetch: true, disableStream: true, useWasm: false }).promise;

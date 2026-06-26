@@ -1,112 +1,54 @@
 # Production deployment
 
-This release assumes the API domain:
+## 1. Files
 
-```text
-mediaassist.002529.xyz
-```
-
-Change it before building if you use another hostname.
-
-## 1. DNS and HTTPS
-
-Point the hostname to the Oracle VPS or expose `127.0.0.1:8787` through your existing tunnel/reverse proxy.
-
-The public API must use HTTPS.
-
-## 2. Prepare the VPS files
-
-Upload these directories to one private folder:
+Keep these together on the Oracle VPS:
 
 ```text
 server/
 deploy/
-owner-secrets/
+owner-secrets/entitlement-private.pem
 ```
-
-Keep `owner-secrets/entitlement-private.pem` private:
 
 ```bash
 chmod 600 owner-secrets/entitlement-private.pem
-```
-
-The matching public key is already embedded in the extension. Replacing the private key requires rebuilding the extension with its new public key.
-
-## 3. Generate local secrets
-
-From the project root:
-
-```bash
 python3 deploy/prepare.py
 ```
 
-This creates:
+Edit `server/.env` and add the Razorpay and Brevo credentials.
 
-```text
-deploy/.env
-server/.env
-```
-
-Then edit `server/.env` and add:
-
-```text
-RAZORPAY_KEY_ID
-RAZORPAY_KEY_SECRET
-RAZORPAY_WEBHOOK_SECRET
-BREVO_API_KEY
-BREVO_SENDER_EMAIL
-```
-
-Set `ENABLE_USD_CHECKOUT=true` only after Razorpay enables international payments for your merchant account.
-
-## 4. Start Docker
+## 2. Start
 
 ```bash
 cd deploy
 docker compose up -d --build
-```
-
-Check:
-
-```bash
 docker compose ps
 docker compose logs -f api
+```
+
+The deployment uses:
+
+- one API container
+- one Uvicorn worker
+- SQLite at `/data/media-assist.db`
+- WAL mode and a persistent Docker volume
+
+Health checks:
+
+```bash
 curl http://127.0.0.1:8787/healthz
 curl http://127.0.0.1:8787/readyz
 ```
 
-## 5. Reverse proxy
+Expose port `8787` through HTTPS using your reverse proxy or tunnel.
 
-An optional Caddy example is included in `deploy/Caddyfile.example`.
-
-Public endpoints that must work:
-
-```text
-GET  /healthz
-GET  /readyz
-POST /v1/auth/request-otp
-POST /v1/webhooks/razorpay
-```
-
-Do not expose PostgreSQL publicly.
-
-## 6. Brevo
-
-Use a verified sender/domain. The server sends only six-digit sign-in codes.
-
-Test login from the extension Options page before enabling live checkout.
-
-## 7. Razorpay
-
-Create a webhook pointing to:
+## 3. Razorpay webhook
 
 ```text
 https://mediaassist.002529.xyz/v1/webhooks/razorpay
 ```
 
-Use the exact same secret in Razorpay and `server/.env`.
-
-Subscribe to:
+Events:
 
 ```text
 payment_link.paid
@@ -114,46 +56,47 @@ refund.processed
 payment.refunded
 ```
 
-Start in Razorpay Test Mode. Complete a test purchase and confirm:
+Start in Test Mode. Verify purchase, duplicate webhook handling and a full refund.
 
-- webhook returns HTTP 200
-- account changes to Pro
-- entitlement is active for 365 days
-- duplicate webhook event does not add a second year
-- full refund removes Pro access
+## 4. Login and sync
 
-## 8. Extension build
+Test the following:
 
-```bash
-npm ci
-npm run release
-```
+- OTP delivery through Brevo
+- first login uploads local settings when the account has none
+- login on a new browser restores server settings
+- new login revokes the previous device
+- old access/refresh tokens return 401
+- pending setting changes retry after reconnecting
 
-Load `.output/chrome-mv3` unpacked and test against the live API before uploading the Chrome ZIP.
+A replaced device loses server access immediately. Every paid pipeline performs a lightweight online entitlement check before running, so a displaced device cannot continue using paid pipelines. The signed local entitlement cache is retained only for UI status and short network interruptions.
 
-## 9. Backups
+## 5. SQLite backup
+
+Online backup without stopping the API:
 
 ```bash
 cd deploy
 ./backup.sh
 ```
 
+Restore:
+
+```bash
+./restore.sh ./backups/media-assist-YYYYMMDDTHHMMSSZ.db
+```
+
 Back up separately:
 
-- PostgreSQL dump
+- SQLite backup files
 - `owner-secrets/entitlement-private.pem`
 - `server/.env`
 
-Losing the entitlement private key prevents the server from issuing tokens accepted by the published extension.
+## 6. Extension
 
-## 10. Final release checks
+```bash
+npm ci
+npm run release
+```
 
-- OTP email delivery works
-- INR checkout works
-- USD option appears only when enabled
-- Razorpay webhook signature failures return 401
-- payment amount/currency/link mismatch does not activate Pro
-- Pro pipeline button appears in WhatsApp
-- expired/refunded account loses Pro after refresh or grace expiry
-- no image/PDF request reaches the licensing API
-- Chrome and Firefox packages load without manifest errors
+Load `.output/chrome-mv3` unpacked and test real WhatsApp image, HD-image, image-document and PDF viewers before store submission.

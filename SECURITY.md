@@ -1,62 +1,42 @@
 # Security model
 
-## Protected server secrets
+## Secrets
 
-Never place these in the extension, public source archive or GitHub:
+Never put these in the extension or public repository:
 
-- Razorpay key secret
-- Razorpay webhook secret
+- Razorpay key/webhook secrets
 - entitlement private key
 - JWT secret
 - OTP pepper
 - Brevo API key
-- PostgreSQL password
 
-## Entitlements
+## Account and entitlement
 
-- P-256 ECDSA signatures
-- random installation/device binding
-- 24-hour refresh target
-- 72-hour offline grace
-- server-controlled annual expiry
-- maximum three active devices by default
-- refund and device revocation support
+- email OTP with cooldown, expiry and attempt limits
+- rotating refresh tokens and replay detection
+- one active device per account
+- old server sessions revoked on a new OTP login
+- P-256 signed, device-bound Pro entitlement
+- 10-minute refresh target
+- online entitlement verification before every paid pipeline execution
+- short signed local cache for UI status; it cannot authorize a paid pipeline by itself
+- server-controlled annual expiry and refund revocation
 
-The public verification key is intentionally included in the extension. It cannot create valid entitlements.
+The public verification key in the extension cannot generate valid entitlements. A skilled attacker can still patch a locally modified extension, as with any client-side premium feature.
 
-A skilled attacker can still modify a locally loaded copy of any browser extension. Server entitlements prevent ordinary key generation, sharing and refund bypass, but cannot make client-side code impossible to patch.
+## SQLite
 
-## Authentication
+- one API worker
+- WAL journal mode
+- foreign keys enabled
+- 10-second busy timeout
+- online backup API used for consistent backups
+- database stored only in a persistent Docker volume
 
-- six-digit email OTP
-- OTP HMAC hashing
-- email cooldown and per-IP/per-email request limits
-- maximum attempts and expiry
-- 15-minute access tokens
-- rotating refresh tokens
-- refresh-token replay revokes the active device token chain
-- server-side sign-out and device revocation
+## Media boundary
+
+The WhatsApp content script does not send media to the API. Heavy merge/PDF work runs through an extension-origin processor and is destroyed after three idle seconds. A 120-second timeout prevents stuck processing jobs.
 
 ## Payments
 
-- Razorpay-hosted Payment Links
-- webhook HMAC validation over the raw body
-- event-ID idempotency
-- payment link, amount and currency checks
-- activation only after captured payment webhook
-- full-refund revocation
-
-## Extension boundary
-
-Only the background service worker can contact the configured licensing API. The WhatsApp content script processes media locally and does not contain payment secrets.
-
-## Reporting
-
-```text
-security@002529.xyz
-```
-
-
-## Dependency audit
-
-`npm audit --omit=dev` reports zero production dependency vulnerabilities. The full development tree currently reports advisories inside WXT/Vite/Firefox packaging tooling; those development packages are not included in the Chrome or Firefox runtime ZIPs.
+Razorpay checkout is hosted by Razorpay. Pro activates only after a verified, idempotent webhook whose payment link, amount and currency match the server checkout record.

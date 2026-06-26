@@ -9,15 +9,12 @@ import type {
 } from '../types/media';
 
 export class PrivacySourceError extends Error {
-  // This happens when the browser blocks cross-origin image data access.
-  constructor(message = "This image can't be edited — try opening it fully first, then use the toolbar.") {
+  constructor(message = 'The currently loaded media cannot be processed without a new network request.') {
     super(message);
     this.name = 'PrivacySourceError';
   }
 }
 
-// Safety limits for canvas allocation. These same values are duplicated in
-// entrypoints/media-processor.ts (OffscreenCanvas worker) — keep them in sync.
 const MAX_PIXELS = 80_000_000;
 const MAX_EDGE = 16_384;
 
@@ -182,7 +179,10 @@ async function encodeToLimit(
     let attempts = 0;
     while (maxBytes && blob.size > maxBytes && compression.allowDimensionReduction && attempts < 10) {
       const next = scaleCanvas(working, 0.88);
-      if (working !== initial) { working.width = 1; working.height = 1; }
+      if (working !== initial) {
+        working.width = 1;
+        working.height = 1;
+      }
       working = next;
       blob = await canvasToBlob(working, 'image/png');
       attempts += 1;
@@ -194,38 +194,17 @@ async function encodeToLimit(
 
   const preferred = Math.max(compression.minimumQuality, Math.min(1, compression.preferredQuality));
   let dimensionsAttempt = 0;
-
   while (true) {
-    // ── Fast path: probe at preferred quality first ──────────────────────────
-    // For the majority of images this single encode is all we need. Only fall
-    // through to the binary search when the preferred encode exceeds maxBytes.
-    const probe = await canvasToBlob(working, mimeFor(format), preferred);
-    if (!maxBytes || probe.size <= maxBytes) {
-      // Already fits at the best quality — done immediately, no binary search.
-      if (minBytes && probe.size < minBytes)
-        warnings.push('The output is smaller than the requested minimum; quality is already at the preferred maximum.');
-      return { blob: probe, canvas: working, quality: preferred, warnings };
-    }
-
-    // ── Binary search between minimumQuality and preferred ───────────────────
-    // Use the probe size to estimate a smarter starting point so we converge
-    // faster (avoid blindly starting at minimumQuality every time).
     let low = compression.minimumQuality;
     let high = preferred;
-    // Rough linear estimate: quality ≈ preferred * (maxBytes / probe.size)
-    const estimatedQuality = Math.max(low, Math.min(high, preferred * (maxBytes / probe.size)));
     let bestBlob = await canvasToBlob(working, mimeFor(format), low);
     let bestQuality = low;
 
-    if (bestBlob.size <= maxBytes) {
-      // Even minimum quality fits — use the estimate as starting lower bound
-      // to reduce the number of iterations needed.
-      low = Math.min(estimatedQuality, high - 0.01);
-
-      for (let index = 0; index < 7; index += 1) {
+    if (!maxBytes || bestBlob.size <= maxBytes) {
+      for (let index = 0; index < 8; index += 1) {
         const quality = (low + high) / 2;
         const candidate = await canvasToBlob(working, mimeFor(format), quality);
-        if (candidate.size <= maxBytes) {
+        if (!maxBytes || candidate.size <= maxBytes) {
           bestBlob = candidate;
           bestQuality = quality;
           low = quality;
@@ -233,17 +212,23 @@ async function encodeToLimit(
           high = quality;
         }
       }
+
+      if (minBytes && bestBlob.size < minBytes && bestQuality >= preferred - 0.01) {
+        warnings.push('The output is smaller than the requested minimum; quality is already at the preferred maximum.');
+      }
       return { blob: bestBlob, canvas: working, quality: bestQuality, warnings };
     }
 
-    // Even minimum quality at current dimensions exceeds maxBytes — scale down.
     if (!compression.allowDimensionReduction || dimensionsAttempt >= 10) {
       warnings.push('The requested maximum size could not be reached at the minimum quality.');
       return { blob: bestBlob, canvas: working, quality: bestQuality, warnings };
     }
 
     const next = scaleCanvas(working, 0.88);
-    if (working !== initial) { working.width = 1; working.height = 1; }
+    if (working !== initial) {
+      working.width = 1;
+      working.height = 1;
+    }
     working = next;
     dimensionsAttempt += 1;
   }

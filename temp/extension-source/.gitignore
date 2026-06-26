@@ -16,3 +16,9 @@ deploy/backups/
 owner-secrets/*.pem
 __pycache__/
 *.pyc
+
+# Local SQLite runtime files
+*.db
+*.db-wal
+*.db-shm
+server/data/

@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +15,10 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 from .config import Settings
-from .timeutils import utcnow  # single source of truth — no local duplicate
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def normalize_email(email: str) -> str:

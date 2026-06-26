@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import json
-import logging
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
-from ..db import get_db, SessionLocal
+from ..db import get_db
 from ..deps import AuthContext, require_auth
 from ..models import Checkout, PaymentEvent, Subscription, utcnow
 from ..razorpay_client import RazorpayClient, RazorpayError
@@ -62,84 +61,9 @@ async def create_checkout(payload: CheckoutRequest, auth: AuthContext = Depends(
     return CheckoutResponse(checkout_url=checkout.short_url, reference_id=reference, expires_at=expires_at, currency=currency, amount_minor=amount)
 
 
-logger = logging.getLogger("media_assist")
-
-
-def process_webhook_async(payload: dict, event_type: str, settings: Settings) -> None:
-    db = SessionLocal()
-    try:
-        if event_type == 'payment_link.paid':
-            link = payload.get('payload', {}).get('payment_link', {}).get('entity', {})
-            payment = payload.get('payload', {}).get('payment', {}).get('entity', {})
-            reference = link.get('reference_id')
-            checkout = db.scalar(select(Checkout).where(Checkout.reference_id == reference))
-            payment_captured = payment.get('status') == 'captured' or payment.get('captured') is True
-            if checkout and payment_captured and link.get('id') == checkout.razorpay_link_id:
-                paid_amount = int(payment.get('amount', 0))
-                paid_currency = payment.get('currency')
-                if paid_amount != checkout.amount_minor or paid_currency != checkout.currency:
-                    logger.warning(
-                        f"Payment amount or currency mismatch: expected {checkout.amount_minor} {checkout.currency}, "
-                        f"got {paid_amount} {paid_currency}"
-                    )
-                    return
-                checkout.status = 'paid'
-                checkout.paid_at = utcnow()
-                existing = db.scalar(select(Subscription).where(Subscription.source_payment_id == payment.get('id')))
-                if not existing:
-                    current = active_subscription(db, checkout.user_id)
-                    start = max(utcnow(), as_utc(current.expires_at)) if current else utcnow()
-                    db.add(Subscription(
-                        user_id=checkout.user_id,
-                        status='active',
-                        starts_at=start,
-                        expires_at=start + timedelta(days=settings.annual_license_days),
-                        source='razorpay',
-                        source_payment_id=payment['id'],
-                        currency=checkout.currency,
-                        amount_minor=checkout.amount_minor,
-                    ))
-        elif event_type == 'refund.processed':
-            refund = payload.get('payload', {}).get('refund', {}).get('entity', {})
-            payment_id = refund.get('payment_id')
-            subscription = db.scalar(select(Subscription).where(Subscription.source_payment_id == payment_id))
-            if subscription and int(refund.get('amount', 0)) >= subscription.amount_minor:
-                subscription.status = 'refunded'
-                subscription.expires_at = utcnow()
-        elif event_type == 'payment.refunded':
-            payment = payload.get('payload', {}).get('payment', {}).get('entity', {})
-            subscription = db.scalar(select(Subscription).where(Subscription.source_payment_id == payment.get('id')))
-            if subscription and int(payment.get('amount_refunded', 0)) >= subscription.amount_minor:
-                subscription.status = 'refunded'
-                subscription.expires_at = utcnow()
-        db.commit()
-        logger.info(f"Successfully processed webhook event {event_type}")
-    except Exception as exc:
-        db.rollback()
-        logger.error(f"Error processing webhook event {event_type}: {exc}", exc_info=exc)
-    finally:
-        db.close()
-
-
 @router.post('/v1/webhooks/razorpay')
-async def razorpay_webhook(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> dict[str, bool]:
-    # Guard body size to prevent memory exhaustion (limit to 1MB)
-    content_length = request.headers.get('content-length')
-    if content_length and int(content_length) > 1_048_576:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='Request body too large')
-
-    body_bytes = bytearray()
-    async for chunk in request.stream():
-        body_bytes.extend(chunk)
-        if len(body_bytes) > 1_048_576:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='Request body too large')
-    raw = bytes(body_bytes)
-
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict[str, bool]:
+    raw = await request.body()
     signature = request.headers.get('x-razorpay-signature', '')
     event_id = request.headers.get('x-razorpay-event-id', '')
     if not signature or not settings.razorpay_webhook_secret or not RazorpayClient(settings).verify_webhook(raw, signature):
@@ -152,11 +76,50 @@ async def razorpay_webhook(
     payload = json.loads(raw)
     event_type = payload.get('event', '')
     db.add(PaymentEvent(id=event_id, event_type=event_type, payload_json=raw.decode('utf-8', errors='replace')))
+
+    if event_type == 'payment_link.paid':
+        link = payload.get('payload', {}).get('payment_link', {}).get('entity', {})
+        payment = payload.get('payload', {}).get('payment', {}).get('entity', {})
+        reference = link.get('reference_id')
+        checkout = db.scalar(select(Checkout).where(Checkout.reference_id == reference))
+        payment_captured = payment.get('status') == 'captured' or payment.get('captured') is True
+        if checkout and payment_captured and link.get('id') == checkout.razorpay_link_id:
+            paid_amount = int(payment.get('amount', 0))
+            paid_currency = payment.get('currency')
+            if paid_amount != checkout.amount_minor or paid_currency != checkout.currency:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Payment amount or currency mismatch')
+            checkout.status = 'paid'
+            checkout.paid_at = utcnow()
+            existing = db.scalar(select(Subscription).where(Subscription.source_payment_id == payment.get('id')))
+            if not existing:
+                current = active_subscription(db, checkout.user_id)
+                start = max(utcnow(), as_utc(current.expires_at)) if current else utcnow()
+                db.add(Subscription(
+                    user_id=checkout.user_id,
+                    status='active',
+                    starts_at=start,
+                    expires_at=start + timedelta(days=settings.annual_license_days),
+                    source='razorpay',
+                    source_payment_id=payment['id'],
+                    currency=checkout.currency,
+                    amount_minor=checkout.amount_minor,
+                ))
+    elif event_type == 'refund.processed':
+        refund = payload.get('payload', {}).get('refund', {}).get('entity', {})
+        payment_id = refund.get('payment_id')
+        subscription = db.scalar(select(Subscription).where(Subscription.source_payment_id == payment_id))
+        if subscription and int(refund.get('amount', 0)) >= subscription.amount_minor:
+            subscription.status = 'refunded'
+            subscription.expires_at = utcnow()
+    elif event_type == 'payment.refunded':
+        payment = payload.get('payload', {}).get('payment', {}).get('entity', {})
+        subscription = db.scalar(select(Subscription).where(Subscription.source_payment_id == payment.get('id')))
+        if subscription and int(payment.get('amount_refunded', 0)) >= subscription.amount_minor:
+            subscription.status = 'refunded'
+            subscription.expires_at = utcnow()
+
     db.commit()
-
-    background_tasks.add_task(process_webhook_async, payload, event_type, settings)
     return {'ok': True}
-
 
 
 @router.get('/payment-complete', response_class=HTMLResponse)

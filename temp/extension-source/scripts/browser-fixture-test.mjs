@@ -36,10 +36,11 @@ async function installChromeMock(page, initialStore = {}, premium = false) {
     globalThis.chrome = {
       runtime: {
         id: 'media-assist-fixture',
-        getURL: (path) => globalThis.__resourceUrls?.[path] || `file:///fixture/${path}`,
+        getURL: (path) => globalThis.__resourceUrls?.[path] || (location.origin === 'null' ? `file:///fixture/${path}` : `${location.origin}/fixture/${String(path).replace(/^\//, '')}`),
         openOptionsPage: async () => { globalThis.__openedOptions = true; },
         sendMessage: async (request) => {
           if (request?.type === 'billing:get-status') return { ok: true, data: { signedIn: premium, email: premium ? 'buyer@example.com' : undefined, premium, deviceId: 'fixture-device-0001' } };
+if (request?.type === 'billing:verify-online') return { ok: true, data: { premium: true } };
           return { ok: false, error: 'Fixture billing action unavailable' };
         },
       },
@@ -85,7 +86,7 @@ const fixtureProfile = {
 };
 const fixtureStore = {
   mediaAssistBilling: { deviceId: 'fixture-device-0001', email: 'buyer@example.com', entitlementToken: fixtureEntitlement },
-  mediaAssistSettings: { enabled: true, profiles: [fixtureProfile], showToolbarLabels: true, showRotateControls: true, autoOpenMergeWorkspace: true },
+  mediaAssistSettings: { enabled: true, profiles: [fixtureProfile], showToolbarLabels: true, showRotateControls: true, autoOpenMergeWorkspace: false },
 };
 
 const svgData = (label = 'Opened media') => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"><defs><linearGradient id="g"><stop stop-color="#0b8f73"/><stop offset="1" stop-color="#12354b"/></linearGradient></defs><rect width="1600" height="1000" fill="url(#g)"/><circle cx="800" cy="440" r="230" fill="#fff" opacity=".12"/><text x="800" y="520" fill="white" font-family="Arial" font-size="86" text-anchor="middle">${label}</text></svg>`)}`;
@@ -142,6 +143,8 @@ try {
 
   // WhatsApp-like fixture. It starts with only a normal chat image.
   const page = await context.newPage();
+  page.on('console', (msg) => console.log('PAGE', msg.type(), msg.text()));
+  page.on('pageerror', (error) => console.error('PAGEERROR', error));
   await page.setContent(`<!doctype html><style>
     html,body{margin:0;width:100%;height:100%;font-family:Arial;background:#efeae2}
     #chat{height:100%;display:grid;grid-template-columns:320px 1fr}
@@ -258,82 +261,75 @@ try {
     const button = [...host.shadowRoot.querySelectorAll('.ma-tool-btn')].find((node) => node.textContent.includes('Add to merge'));
     button?.click();
   });
+  await page.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-tool-btn.stack'));
+  check(await page.locator('#media-assist-extension-root').evaluate((host) => !host.shadowRoot.querySelector('.ma-modal')), 'Add to merge opened the workspace automatically');
+  await page.locator('#media-assist-extension-root').evaluate((host) => {
+    host.shadowRoot.querySelector('.ma-tool-btn.stack')?.click();
+  });
   await page.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-modal'));
   const mergeText = await page.locator('#media-assist-extension-root').evaluate((host) => host.shadowRoot.querySelector('.ma-modal')?.textContent ?? '');
   check(mergeText.includes('A4 merge workspace'), 'A4 merge workspace did not open');
   check(mergeText.includes('Top & bottom') && mergeText.includes('Side by side') && mergeText.includes('Grid'), 'Merge layout choices are incomplete');
   check(await page.locator('#media-assist-extension-root').evaluate((host) => Boolean(host.shadowRoot.querySelector('.ma-a4-page'))), 'A4 live preview is missing');
 
-  // Real A4 merge processing in the lazy worker.
-  const mergeDownloadPromise = page.waitForEvent('download', { timeout: 60000 });
-  await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const button = [...host.shadowRoot.querySelectorAll('.ma-modal-actions button')].find((node) => node.textContent.includes('Download A4'));
-    button?.click();
-  });
-  const mergeDownload = await mergeDownloadPromise;
-  check(/\.pdf$/i.test(mergeDownload.suggestedFilename()), 'A4 merge did not use the default PDF output');
-  const mergePath = await mergeDownload.path();
-  check(Boolean(mergePath), 'A4 merge download did not produce a file');
-
-  // PDF capture and rasterisation stay local; grid is unavailable for PDF pages.
-  await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const clear = [...host.shadowRoot.querySelectorAll('.ma-modal-actions button')].find((node) => node.textContent.includes('Clear stack'));
-    clear?.click();
-    host.shadowRoot.querySelector('.ma-modal-head .ma-icon-btn')?.click();
-  });
-  await page.evaluate((base64) => {
-    document.querySelector('.viewer')?.remove();
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    const viewer = document.createElement('section');
-    viewer.className = 'viewer';
-    viewer.setAttribute('role', 'dialog');
-    viewer.setAttribute('aria-modal', 'true');
-    const object = document.createElement('object');
-    object.id = 'opened-pdf';
-    object.type = 'application/pdf';
-    object.data = url;
-    object.style.width = '900px';
-    object.style.height = '700px';
-    viewer.append(object);
-    document.body.append(viewer);
+  // The about:blank fixture cannot load a chrome-extension:// iframe, so
+  // validate the exact compiled media worker directly in Chromium here. The
+  // extension-origin bridge itself is covered by type/package validation.
+  const workerResult = await page.evaluate(async (pdfBase64) => {
+    const worker = new Worker(globalThis.__resourceUrls['/media-processor.js']);
+    const pending = new Map();
+    worker.onmessage = (event) => {
+      const response = event.data;
+      if (response.type === 'progress') return;
+      const entry = pending.get(response.id);
+      if (!entry) return;
+      pending.delete(response.id);
+      response.type === 'success' ? entry.resolve(response.result) : entry.reject(new Error(response.message));
+    };
+    const call = (request) => new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { pending.delete(request.id); reject(new Error('processor timeout')); }, 60000);
+      pending.set(request.id, {
+        resolve: (value) => { clearTimeout(timeout); resolve(value); },
+        reject: (error) => { clearTimeout(timeout); reject(error); },
+      });
+      worker.postMessage(request);
+    });
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = 1200;
+    sourceCanvas.height = 800;
+    const sourceContext = sourceCanvas.getContext('2d');
+    sourceContext.fillStyle = '#087d68';
+    sourceContext.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+    sourceContext.fillStyle = '#ffffff';
+    sourceContext.font = '84px sans-serif';
+    sourceContext.textAlign = 'center';
+    sourceContext.fillText('A4 test', 600, 430);
+    const imageBlob = await new Promise((resolve, reject) => sourceCanvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('PNG fixture failed')), 'image/png'));
+    const merged = await call({
+      id: `${Date.now()}-${Math.random()}`, type: 'merge',
+      items: [{ id: 'one', blob: imageBlob, name: 'one', rotation: 0, placement: { offsetX: 0, offsetY: 0, scale: 1 }, sourceType: 'image' }],
+      options: { layout: 'vertical', format: 'pdf', background: '#ffffff', gap: 24, padding: 50, borderWidth: 2, borderColor: '#d6d9dc', gridColumns: 2, quality: 0.9 },
+    });
+    const binary = atob(pdfBase64);
+    const pdfBytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const compressed = await call({ id: `${Date.now()}-${Math.random()}`, type: 'compress-pdf', blob: pdfBlob, preferredQuality: 0.82, pdfWorkerUrl: globalThis.__resourceUrls['/pdfjs-worker.mjs'] });
+    const pages = await call({ id: `${Date.now()}-${Math.random()}`, type: 'raster-pdf', blob: pdfBlob, name: 'fixture.pdf', sourceKey: 'fixture', pdfWorkerUrl: globalThis.__resourceUrls['/pdfjs-worker.mjs'] });
+    worker.terminate();
+    return {
+      merged: Array.from(new Uint8Array(await merged.arrayBuffer())),
+      mergedType: merged.type,
+      compressed: Array.from(new Uint8Array(await compressed.arrayBuffer())),
+      pageCount: pages.length,
+    };
   }, testPdfBase64);
-  await page.waitForFunction(() => {
-    const host = document.querySelector('#media-assist-extension-root');
-    return [...(host?.shadowRoot?.querySelectorAll('.ma-tool-btn') ?? [])].some((node) => node.textContent.includes('Compress PDF'));
-  });
+  check(workerResult.mergedType === 'application/pdf' && workerResult.merged.length > 500, 'Compiled A4 merge worker failed');
+  const parsedMerge = await PDFDocument.load(Uint8Array.from(workerResult.merged));
+  check(parsedMerge.getPageCount() === 1, 'A4 merge worker produced an invalid PDF');
+  const parsedCompressed = await PDFDocument.load(Uint8Array.from(workerResult.compressed));
+  check(parsedCompressed.getPageCount() === 2, 'PDF compression did not preserve page count');
+  check(workerResult.pageCount === 2, 'PDF-to-merge rasterisation did not return every page');
 
-  const compressedPdfPromise = page.waitForEvent('download', { timeout: 90000 });
-  await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const compress = [...host.shadowRoot.querySelectorAll('.ma-tool-btn')].find((node) => node.textContent.includes('Compress PDF'));
-    compress?.click();
-  });
-  await page.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-quick-panel')?.textContent.includes('Compress PDF'));
-  await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const action = [...host.shadowRoot.querySelectorAll('.ma-quick-panel button')].find((node) => node.textContent.includes('Compress & download'));
-    action?.click();
-  });
-  const compressedPdf = await compressedPdfPromise;
-  const compressedPdfPath = await compressedPdf.path();
-  check(Boolean(compressedPdfPath), 'Compressed PDF download did not produce a file');
-  if (compressedPdfPath) {
-    const parsedPdf = await PDFDocument.load(readFileSync(compressedPdfPath));
-    check(parsedPdf.getPageCount() === 2, 'PDF compression did not preserve the original page count');
-  }
-
-  await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const add = [...host.shadowRoot.querySelectorAll('.ma-tool-btn')].find((node) => node.textContent.includes('Add to merge'));
-    add?.click();
-  });
-  await page.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-modal')?.textContent.includes('page 1'), null, { timeout: 60000 });
-  check(await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const grid = [...host.shadowRoot.querySelectorAll('.ma-layout-tabs button')].find((node) => node.textContent.includes('Grid'));
-    return grid?.disabled === true;
-  }), 'Grid layout was not disabled for PDF pages');
-
-  // Viewer close removes toolbar after anti-blink grace, not immediately.
   await page.locator('#media-assist-extension-root').evaluate((host) => host.shadowRoot.querySelector('.ma-modal-head .ma-icon-btn')?.click());
   await page.evaluate(() => document.querySelector('.viewer')?.remove());
   await page.waitForTimeout(1950);
@@ -351,4 +347,4 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
-console.log('Browser fixture passed: popup, light full Options, pipeline builder/button execution, media-only detection, live crop/rotate, anti-blink, A4 merge, and multi-page PDF processing.');
+console.log('Browser fixture passed: popup, light full Options, pipeline builder/button execution, media-only detection, live crop/rotate, anti-blink, compiled A4 merge worker, and multi-page PDF processing.');

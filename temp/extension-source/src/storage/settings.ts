@@ -11,6 +11,9 @@ export interface AppSettings {
   showToolbarLabels: boolean;
   showRotateControls: boolean;
   autoOpenMergeWorkspace: boolean;
+  toolbarLocked: boolean;
+  toolbarOffsetX: number;
+  toolbarOffsetY: number;
 
   defaultFilenameTemplate: string;
   defaultFormat: ImageFormat;
@@ -30,6 +33,7 @@ export interface AppSettings {
   mergeDefaultLayout: MergeLayout;
   mergeDefaultFormat: ImageFormat | 'pdf';
   mergeDefaultMaxKB?: number;
+  mergeDefaultQuality: number;
   mergeDefaultGap: number;
   mergeDefaultPadding: number;
   mergeDefaultBorderWidth: number;
@@ -47,15 +51,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   showToolbarLabels: true,
   showRotateControls: true,
-  autoOpenMergeWorkspace: true,
+  autoOpenMergeWorkspace: false,
+  toolbarLocked: false,
+  toolbarOffsetX: 0,
+  toolbarOffsetY: 0,
 
   defaultFilenameTemplate: '{datetime}',
   defaultFormat: 'jpeg',
-  defaultMaxKB: 200,
+  defaultMaxKB: 180,
   defaultMinKB: undefined,
   defaultWidth: undefined,
   defaultHeight: undefined,
-  defaultQuality: 92,
+  defaultQuality: 90,
   minimumQuality: 35,
   allowDimensionReduction: true,
   allowUpscale: false,
@@ -65,8 +72,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   removeSpecialCharactersByDefault: true,
 
   mergeDefaultLayout: 'vertical',
-  mergeDefaultFormat: 'pdf',
-  mergeDefaultMaxKB: 500,
+  mergeDefaultFormat: 'jpeg',
+  mergeDefaultMaxKB: 480,
+  mergeDefaultQuality: 90,
   mergeDefaultGap: 36,
   mergeDefaultPadding: 72,
   mergeDefaultBorderWidth: 3,
@@ -78,18 +86,27 @@ export const DEFAULT_SETTINGS: AppSettings = {
   onboardingComplete: false,
 };
 
-const SETTINGS_KEY = 'mediaAssistSettings';
+export const SETTINGS_KEY = 'mediaAssistSettings';
 
 function normalizeLayout(value: unknown): MergeLayout {
   if (value === 'horizontal' || value === 'grid') return value;
   return 'vertical';
 }
 
-function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
+export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
   const merged = { ...DEFAULT_SETTINGS, ...(input ?? {}) } as AppSettings;
+  if (input?.autoOpenMergeWorkspace === true) merged.autoOpenMergeWorkspace = false;
+  if (input?.defaultMaxKB === 200) merged.defaultMaxKB = DEFAULT_SETTINGS.defaultMaxKB;
+  if (input?.defaultQuality === 92) merged.defaultQuality = DEFAULT_SETTINGS.defaultQuality;
+  if (input?.mergeDefaultFormat === 'pdf') merged.mergeDefaultFormat = DEFAULT_SETTINGS.mergeDefaultFormat;
+  if (input?.mergeDefaultMaxKB === 500) merged.mergeDefaultMaxKB = DEFAULT_SETTINGS.mergeDefaultMaxKB;
   merged.mergeDefaultLayout = normalizeLayout(input?.mergeDefaultLayout);
   merged.defaultQuality = Math.max(35, Math.min(100, Number(merged.defaultQuality) || DEFAULT_SETTINGS.defaultQuality));
   merged.minimumQuality = Math.max(20, Math.min(90, Number(merged.minimumQuality) || DEFAULT_SETTINGS.minimumQuality));
+  merged.mergeDefaultQuality = Math.max(35, Math.min(100, Number(merged.mergeDefaultQuality) || DEFAULT_SETTINGS.mergeDefaultQuality));
+  merged.toolbarLocked = Boolean(merged.toolbarLocked);
+  merged.toolbarOffsetX = Math.max(-1200, Math.min(1200, Number(merged.toolbarOffsetX) || 0));
+  merged.toolbarOffsetY = Math.max(-1200, Math.min(1200, Number(merged.toolbarOffsetY) || 0));
   merged.mergeDefaultGridColumns = Math.max(1, Math.min(6, Number(merged.mergeDefaultGridColumns) || 2));
   merged.mergeDefaultPadding = Math.max(0, Math.min(400, Number(merged.mergeDefaultPadding) || 0));
   merged.mergeDefaultGap = Math.max(0, Math.min(300, Number(merged.mergeDefaultGap) || 0));

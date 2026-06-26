@@ -10,7 +10,7 @@ export default defineConfig({
     name: 'Media Assist for WhatsApp Web',
     short_name: 'Media Assist',
     description: 'Crop, resize, compress and merge opened WhatsApp Web media locally. Pro pipelines automate repeated workflows.',
-    version: '1.3.0',
+    version: '1.4.0',
     permissions: ['storage', 'alarms'],
     host_permissions: ['https://web.whatsapp.com/*', `${API_ORIGIN}/*`],
     action: {
@@ -18,7 +18,7 @@ export default defineConfig({
       default_popup: 'popup.html',
     },
     web_accessible_resources: [{
-      resources: ['media-processor.js', 'pdfjs-worker.mjs', 'processor-iframe.html'],
+      resources: ['processor.html', 'media-processor.js', 'pdfjs-worker.mjs'],
       matches: ['https://web.whatsapp.com/*'],
     }],
     icons: {

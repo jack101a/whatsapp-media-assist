@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getSettings, type AppSettings, watchSettings } from '../storage/settings';
+import { browser } from 'wxt/browser';
+import { getSettings, saveSettings, type AppSettings, watchSettings } from '../storage/settings';
 import type { CanvasOperation, ImageFormat, MergeItem, MergeLayout, NormalizedCrop, ResizeSettings } from '../types/media';
 import type { FilenamePreset, MediaProfile, PipelineStep } from '../types/profile';
 import { processCanvasPipeline, processImage, PrivacySourceError } from '../engine/canvas';
 import { downloadBlob } from '../engine/download';
 import { captureActiveMedia } from '../whatsapp/local-media';
-import { compressPdfLocally, keepWorkerAlive, mergeMedia, rasterizePdfForMerge, terminateProcessor } from '../engine/processor-client';
+import { compressPdfLocally, mergeMedia, rasterizePdfForMerge, terminateProcessor } from '../engine/processor-client';
 import { findActiveMedia, refreshActiveMedia, type ActiveMedia } from '../whatsapp/media-detector';
 import { formatBytes, kbToBytes } from '../utils/bytes';
 import { renderFilename, withExtension } from '../utils/filename';
@@ -23,6 +24,16 @@ interface PendingPipeline { profile: MediaProfile; source: Blob }
 
 const EMPTY_TRANSFORM: TransformState = { rotation: 0 };
 
+function clampQualityPercent(value: number | undefined, fallback: number): number {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return Math.max(35, Math.min(100, fallback));
+  return Math.max(35, Math.min(100, next));
+}
+
+function clampToolbarOffset(value: number): number {
+  return Math.max(-1200, Math.min(1200, Math.round(value)));
+}
+
 function useSettingsState() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   useEffect(() => {
@@ -36,24 +47,13 @@ function usePremiumState() {
   const [premium, setPremium] = useState(false);
   useEffect(() => {
     let active = true;
-    // Cache the last token we verified so we can skip the async crypto.subtle
-    // call when billing storage changes for unrelated fields (e.g. lastCheckedAt
-    // timestamps written every 12 hours by the background alarm).
-    let lastCheckedToken: string | undefined = undefined;
-
-    const verify = async (entitlementToken: string | undefined, deviceId: string) => {
-      if (entitlementToken === lastCheckedToken) return; // token unchanged — skip
-      lastCheckedToken = entitlementToken;
-      const status = await verifyEntitlementToken(entitlementToken, deviceId);
+    const refresh = async () => {
+      const billing = await getBillingState();
+      const status = await verifyEntitlementToken(billing.entitlementToken, billing.deviceId);
       if (active) setPremium(status.premium);
     };
-
-    // Initial load: read storage once.
-    void getBillingState().then((b) => verify(b.entitlementToken, b.deviceId));
-
-    // Subsequent changes: billing state is delivered directly by the watcher,
-    // so we never call getBillingState() again after the first load.
-    const unwatch = watchBillingState((b) => void verify(b.entitlementToken, b.deviceId));
+    void refresh();
+    const unwatch = watchBillingState(() => void refresh());
     return () => { active = false; unwatch(); };
   }, []);
   return premium;
@@ -105,22 +105,14 @@ function PreviewCanvas({ media, transform }: { media: ActiveMedia; transform: Tr
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const active = media.kind === 'image' && (transform.rotation !== 0 || Boolean(transform.crop));
 
-  // Opacity: toggle the underlying WhatsApp image hidden when our canvas is active.
-  // Keyed only on element identity + active — rect changes don't need to re-run this.
-  const element = media.kind === 'image' ? media.element : null;
   useEffect(() => {
-    if (!element || !active) return;
-    const previousOpacity = element.style.opacity;
-    element.style.opacity = '0';
-    return () => { element.style.opacity = previousOpacity; };
-  }, [element, active]);
+    if (media.kind !== 'image' || !active) return;
+    const image = media.element;
+    const previousOpacity = image.style.opacity;
+    image.style.opacity = '0';
+    return () => { image.style.opacity = previousOpacity; };
+  }, [media, active]);
 
-  // Canvas draw: keyed on element identity + transform only.
-  // Rect (position/size) is handled by the CSS style prop below — React updates
-  // that without running this effect, so we avoid a full canvas redraw on every
-  // toolbar-position tick (~90 ms while the viewer is open).
-  const rotation = transform.rotation;
-  const crop = transform.crop;
   useEffect(() => {
     if (media.kind !== 'image' || !active || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -134,8 +126,8 @@ function PreviewCanvas({ media, transform }: { media: ActiveMedia; transform: Tr
 
     const sourceWidth = media.element.naturalWidth;
     const sourceHeight = media.element.naturalHeight;
-    const rotatedWidth = rotation === 90 || rotation === 270 ? sourceHeight : sourceWidth;
-    const rotatedHeight = rotation === 90 || rotation === 270 ? sourceWidth : sourceHeight;
+    const rotatedWidth = transform.rotation === 90 || transform.rotation === 270 ? sourceHeight : sourceWidth;
+    const rotatedHeight = transform.rotation === 90 || transform.rotation === 270 ? sourceWidth : sourceHeight;
     const previewScale = Math.min(1, 1600 / Math.max(rotatedWidth, rotatedHeight));
     const temp = document.createElement('canvas');
     temp.width = Math.max(1, Math.round(rotatedWidth * previewScale));
@@ -145,52 +137,26 @@ function PreviewCanvas({ media, transform }: { media: ActiveMedia; transform: Tr
     tempContext.imageSmoothingEnabled = true;
     tempContext.imageSmoothingQuality = 'high';
     tempContext.translate(temp.width / 2, temp.height / 2);
-    tempContext.rotate((rotation * Math.PI) / 180);
+    tempContext.rotate((transform.rotation * Math.PI) / 180);
     const drawWidth = sourceWidth * previewScale;
     const drawHeight = sourceHeight * previewScale;
     tempContext.drawImage(media.element, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
 
-    const activeCrop = crop ?? { x: 0, y: 0, width: 1, height: 1 };
-    const sx = Math.round(activeCrop.x * temp.width);
-    const sy = Math.round(activeCrop.y * temp.height);
-    const sw = Math.max(1, Math.round(activeCrop.width * temp.width));
-    const sh = Math.max(1, Math.round(activeCrop.height * temp.height));
+    const crop = transform.crop ?? { x: 0, y: 0, width: 1, height: 1 };
+    const sx = Math.round(crop.x * temp.width);
+    const sy = Math.round(crop.y * temp.height);
+    const sw = Math.max(1, Math.round(crop.width * temp.width));
+    const sh = Math.max(1, Math.round(crop.height * temp.height));
     const scale = Math.min(cssWidth / sw, cssHeight / sh);
     const dw = sw * scale;
     const dh = sh * scale;
     context.drawImage(temp, sx, sy, sw, sh, (cssWidth - dw) / 2, (cssHeight - dh) / 2, dw, dh);
     temp.width = 1;
     temp.height = 1;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [element, rotation, crop, active]);
+  }, [media, transform, active]);
 
   if (!active) return null;
   return <canvas ref={canvasRef} className="ma-live-preview" style={{ left: media.rect.left, top: media.rect.top, width: media.rect.width, height: media.rect.height }} />;
-}
-
-type CropRatioPreset = 'free' | '1:1' | '4:3' | '3:4' | '16:9' | '9:16';
-const CROP_RATIOS: { label: string; value: CropRatioPreset; ratio: number | null }[] = [
-  { label: 'Free', value: 'free', ratio: null },
-  { label: '1:1', value: '1:1', ratio: 1 },
-  { label: '4:3', value: '4:3', ratio: 4 / 3 },
-  { label: '3:4', value: '3:4', ratio: 3 / 4 },
-  { label: '16:9', value: '16:9', ratio: 16 / 9 },
-  { label: '9:16', value: '9:16', ratio: 9 / 16 },
-];
-
-function applyCropRatio(crop: NormalizedCrop, ratio: number): NormalizedCrop {
-  // Expand/shrink height to match the ratio while keeping centre the same.
-  const centreX = crop.x + crop.width / 2;
-  const centreY = crop.y + crop.height / 2;
-  // Use existing width as the reference dimension.
-  const newHeight = Math.min(1, crop.width / ratio);
-  const newWidth = Math.min(1, newHeight * ratio);
-  return {
-    x: Math.max(0, Math.min(1 - newWidth, centreX - newWidth / 2)),
-    y: Math.max(0, Math.min(1 - newHeight, centreY - newHeight / 2)),
-    width: newWidth,
-    height: newHeight,
-  };
 }
 
 function CropOverlay({ imageRect, initial, onCancel, onConfirm }: {
@@ -200,14 +166,7 @@ function CropOverlay({ imageRect, initial, onCancel, onConfirm }: {
   onConfirm: (crop: NormalizedCrop) => void;
 }) {
   const [crop, setCrop] = useState<NormalizedCrop>(initial ?? { x: 0.06, y: 0.06, width: 0.88, height: 0.88 });
-  const [ratioKey, setRatioKey] = useState<CropRatioPreset>('free');
-  const drag = useRef<{ mode: 'move' | 'nw' | 'ne' | 'sw' | 'se'; startX: number; startY: number; start: NormalizedCrop; ratio: number | null } | null>(null);
-  const activeRatio = CROP_RATIOS.find((r) => r.value === ratioKey)?.ratio ?? null;
-
-  const setRatio = (key: CropRatioPreset, ratio: number | null) => {
-    setRatioKey(key);
-    if (ratio !== null) setCrop((c) => applyCropRatio(c, ratio));
-  };
+  const drag = useRef<{ mode: 'move' | 'nw' | 'ne' | 'sw' | 'se'; startX: number; startY: number; start: NormalizedCrop } | null>(null);
 
   useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -226,8 +185,6 @@ function CropOverlay({ imageRect, initial, onCancel, onConfirm }: {
         const top = drag.current.mode.includes('n') ? Math.max(0, Math.min(start.y + start.height - minimum, start.y + dy)) : start.y;
         const bottom = drag.current.mode.includes('s') ? Math.min(1, Math.max(start.y + minimum, start.y + start.height + dy)) : start.y + start.height;
         next = { x: left, y: top, width: right - left, height: bottom - top };
-        // Enforce locked ratio on corner drags
-        if (drag.current.ratio !== null) next = applyCropRatio(next, drag.current.ratio);
       }
       setCrop(next);
     };
@@ -243,7 +200,7 @@ function CropOverlay({ imageRect, initial, onCancel, onConfirm }: {
   const begin = (mode: 'move' | 'nw' | 'ne' | 'sw' | 'se', event: React.PointerEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    drag.current = { mode, startX: event.clientX, startY: event.clientY, start: crop, ratio: activeRatio };
+    drag.current = { mode, startX: event.clientX, startY: event.clientY, start: crop };
   };
 
   const boxStyle = {
@@ -256,16 +213,6 @@ function CropOverlay({ imageRect, initial, onCancel, onConfirm }: {
   } as React.CSSProperties;
 
   return <div className="ma-crop-mask">
-    {/* Ratio picker bar */}
-    <div className="ma-crop-ratios">
-      {CROP_RATIOS.map((r) => (
-        <button
-          key={r.value}
-          className={`ma-ratio-btn${ratioKey === r.value ? ' active' : ''}`}
-          onClick={() => setRatio(r.value, r.ratio)}
-        >{r.label}</button>
-      ))}
-    </div>
     <div className="ma-crop-box" style={boxStyle} onPointerDown={(event) => begin('move', event)}>
       {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => <span key={corner} className={`ma-handle ${corner}`} onPointerDown={(event) => begin(corner, event)} />)}
     </div>
@@ -300,30 +247,32 @@ function ResizePanel({ settings, current, onApply, onClose }: {
 
 function CompressPanel({ settings, onDownload, onClose, busy }: {
   settings: AppSettings;
-  onDownload: (maxKB: number | undefined, format: ImageFormat) => void;
+  onDownload: (maxKB: number | undefined, format: ImageFormat, quality: number) => void;
   onClose: () => void;
   busy: boolean;
 }) {
   const [maxKB, setMaxKB] = useState(String(settings.defaultMaxKB ?? ''));
   const [format, setFormat] = useState<ImageFormat>(settings.defaultFormat);
+  const [quality, setQuality] = useState(String(settings.defaultQuality));
   return <QuickPanelCard title="Compress & download" onClose={onClose}>
-    <div className="ma-mini-grid"><label>Max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Format<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat)}><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label></div>
-    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, format)}><Icon name="download" />{busy ? 'Working…' : 'Download'}</button></div>
+    <div className="ma-mini-grid"><label>Max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Format<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat)}><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label></div>
+    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, format, clampQualityPercent(quality ? Number(quality) : undefined, settings.defaultQuality))}><Icon name="download" />{busy ? 'Working…' : 'Download'}</button></div>
   </QuickPanelCard>;
 }
 
 
 function PdfCompressPanel({ settings, onDownload, onClose, busy }: {
   settings: AppSettings;
-  onDownload: (maxKB: number | undefined) => void;
+  onDownload: (maxKB: number | undefined, quality: number) => void;
   onClose: () => void;
   busy: boolean;
 }) {
   const [maxKB, setMaxKB] = useState(String(settings.defaultMaxKB ?? ''));
+  const [quality, setQuality] = useState(String(settings.defaultQuality));
   return <QuickPanelCard title="Compress PDF" onClose={onClose}>
-    <label className="ma-single-field">Target maximum (KB)<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label>
+    <div className="ma-mini-grid"><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label></div>
     <p className="ma-panel-note">Pages are compressed locally and preserved as a multi-page PDF. Selectable text may be rasterised.</p>
-    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined)}><Icon name="download" />{busy ? 'Working…' : 'Compress & download'}</button></div>
+    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, clampQualityPercent(quality ? Number(quality) : undefined, settings.defaultQuality))}><Icon name="download" />{busy ? 'Working…' : 'Compress & download'}</button></div>
   </QuickPanelCard>;
 }
 
@@ -466,6 +415,7 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast }: {
   const [layout, setLayout] = useState<MergeLayout>(settings.mergeDefaultLayout);
   const [format, setFormat] = useState<ImageFormat | 'pdf'>(settings.mergeDefaultFormat);
   const [maxKB, setMaxKB] = useState(String(settings.mergeDefaultMaxKB ?? ''));
+  const [quality, setQuality] = useState(String(settings.mergeDefaultQuality));
   const [gap, setGap] = useState(String(settings.mergeDefaultGap));
   const [padding, setPadding] = useState(String(settings.mergeDefaultPadding));
   const [borderWidth, setBorderWidth] = useState(String(settings.mergeDefaultBorderWidth));
@@ -526,12 +476,16 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast }: {
         borderWidth: Math.max(0, Number(borderWidth) || 0),
         borderColor,
         gridColumns: Math.max(1, Math.min(6, Number(gridColumns) || 2)),
-        quality: settings.defaultQuality / 100,
+        quality: clampQualityPercent(quality ? Number(quality) : undefined, settings.mergeDefaultQuality) / 100,
         maxBytes: kbToBytes(maxKB ? Number(maxKB) : undefined),
       }, (_current, _total, note) => onToast(note));
       const safeName = renderFilename(filename, { format }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: true });
       await downloadBlob(blob, withExtension(safeName, format));
       onToast(`Downloaded A4 ${format.toUpperCase()} • ${formatBytes(blob.size)}`);
+      onItemsChange([]);
+      setSelectedId('');
+      onClose();
+      terminateProcessor();
     } catch (error) {
       onToast(error instanceof Error ? error.message : 'Merge failed.', true);
     } finally {
@@ -544,7 +498,7 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast }: {
       <MergeLayoutPreview items={items} layout={layout} background={background} gap={Number(gap) || 0} padding={Number(padding) || 0} borderWidth={Number(borderWidth) || 0} borderColor={borderColor} gridColumns={Number(gridColumns) || 2} selectedId={selectedId} onSelect={setSelectedId} onItemChange={updateItem} />
       <aside className="ma-merge-sidebar">
         <div className="ma-layout-tabs"><button className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}>Top & bottom</button><button className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}>Side by side</button><button className={layout === 'grid' ? 'active' : ''} disabled={!allImages} title={!allImages ? 'Grid is available only for images' : ''} onClick={() => setLayout('grid')}>Grid</button></div>
-        <div className="ma-merge-settings"><label>Output<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat | 'pdf')}><option value="pdf">PDF</option><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label>{layout === 'grid' && <label>Grid columns<input value={gridColumns} inputMode="numeric" onChange={(event) => setGridColumns(event.target.value.replace(/\D/g, ''))} /></label>}<label>Gap<input value={gap} inputMode="numeric" onChange={(event) => setGap(event.target.value.replace(/\D/g, ''))} /></label><label>Page margin<input value={padding} inputMode="numeric" onChange={(event) => setPadding(event.target.value.replace(/\D/g, ''))} /></label><label>Border<input value={borderWidth} inputMode="numeric" onChange={(event) => setBorderWidth(event.target.value.replace(/\D/g, ''))} /></label><label>Page colour<input type="color" value={background} onChange={(event) => setBackground(event.target.value)} /></label><label>Border colour<input type="color" value={borderColor} onChange={(event) => setBorderColor(event.target.value)} /></label><label className="wide">Filename<input value={filename} onChange={(event) => setFilename(event.target.value)} /></label></div>
+        <div className="ma-merge-settings"><label>Output<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat | 'pdf')}><option value="pdf">PDF</option><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label>{layout === 'grid' && <label>Grid columns<input value={gridColumns} inputMode="numeric" onChange={(event) => setGridColumns(event.target.value.replace(/\D/g, ''))} /></label>}<label>Gap<input value={gap} inputMode="numeric" onChange={(event) => setGap(event.target.value.replace(/\D/g, ''))} /></label><label>Page margin<input value={padding} inputMode="numeric" onChange={(event) => setPadding(event.target.value.replace(/\D/g, ''))} /></label><label>Border<input value={borderWidth} inputMode="numeric" onChange={(event) => setBorderWidth(event.target.value.replace(/\D/g, ''))} /></label><label>Page colour<input type="color" value={background} onChange={(event) => setBackground(event.target.value)} /></label><label>Border colour<input type="color" value={borderColor} onChange={(event) => setBorderColor(event.target.value)} /></label><label className="wide">Filename<input value={filename} onChange={(event) => setFilename(event.target.value)} /></label></div>
         {selected && <div className="ma-selected-controls"><strong>Selected item</strong><div><button onClick={() => setCropItem(selected)}><Icon name="crop" size={15} />Crop</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 270) % 360) as Rotation })}><Icon name="rotate-left" size={15} />Left</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 90) % 360) as Rotation })}><Icon name="rotate-right" size={15} />Right</button></div><label>Zoom <input type="range" min="60" max="160" value={Math.round((selected.placement?.scale ?? 1) * 100)} onChange={(event) => updateItem({ ...selected, placement: { ...(selected.placement ?? { offsetX: 0, offsetY: 0, scale: 1 }), scale: Number(event.target.value) / 100 } })} /></label><button className="ma-reset-position" onClick={() => updateItem({ ...selected, placement: { offsetX: 0, offsetY: 0, scale: 1 } })}>Reset position & zoom</button></div>}
       </aside>
     </div>
@@ -567,6 +521,7 @@ export function ContentApp() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [profileSessions, setProfileSessions] = useState<Record<string, ProfileSession>>({});
   const [pendingPipeline, setPendingPipeline] = useState<PendingPipeline | null>(null);
+  const [toolbarPreviewOffset, setToolbarPreviewOffset] = useState<{ x: number; y: number } | null>(null);
   const previousKey = useRef('');
   const mediaRef = useRef<ActiveMedia | null>(null);
   const missingSince = useRef<number | null>(null);
@@ -577,43 +532,6 @@ export function ContentApp() {
     setToasts((current) => [...current, { id, message, error }]);
     window.setTimeout(() => setToasts((current) => current.filter((item) => item.id !== id)), 3200);
   }, []);
-
-  // While the merge workspace is open, keep the media-processor Worker alive so
-  // it does not get torn down between individual image additions. We ping it
-  // every 30 s — well within the 60 s idle shutdown window — at zero processing
-  // cost (keepWorkerAlive only resets the idle timer if the Worker already exists).
-  useEffect(() => {
-    if (!mergeOpen) return;
-    const id = window.setInterval(keepWorkerAlive, 30_000);
-    return () => window.clearInterval(id);
-  }, [mergeOpen]);
-
-  // Keyboard shortcuts (only when a viewer is active and user isn't typing).
-  // Escape — close any open panel or crop overlay.
-  // D       — download with current defaults.
-  // M       — add current image to merge stack.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (!media || !settings?.enabled) return;
-      const tag = (event.target as HTMLElement)?.tagName?.toLowerCase();
-      const isTyping = tag === 'input' || tag === 'textarea' || tag === 'select'
-        || (event.target as HTMLElement)?.isContentEditable;
-      if (isTyping || event.ctrlKey || event.metaKey || event.altKey) return;
-
-      if (event.key === 'Escape') {
-        if (cropMode) { setCropMode(false); setPendingPipeline(null); }
-        else if (quickPanel) setQuickPanel(null);
-        else if (mergeOpen) setMergeOpen(false);
-      } else if (event.key === 'd' || event.key === 'D') {
-        if (!busy) void downloadCurrent();
-      } else if (event.key === 'm' || event.key === 'M') {
-        if (!busy) void addCurrentToMerge();
-      }
-    };
-    window.addEventListener('keydown', handler, { capture: true });
-    return () => window.removeEventListener('keydown', handler, true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [media, settings?.enabled, cropMode, quickPanel, mergeOpen, busy]);
 
   useEffect(() => {
     if (!settings?.enabled) {
@@ -678,22 +596,17 @@ export function ContentApp() {
       frame = 0;
       if (document.hidden) return;
       const now = performance.now();
-      // Adaptive throttle:
-      //  • 90 ms  — viewer is open: we need quick toolbar repositioning.
-      //  • 600 ms — idle: user is browsing chats, no viewer open.
-      //             This alone saves ~85 % of rAF + DOM-query CPU while idle.
       const scanInterval = mediaRef.current ? 90 : 600;
       if (now - lastScan < scanInterval) return;
       lastScan = now;
 
-      // Fast path: when we already know the viewer element, pass it so
-      // findActiveMedia only searches inside that subtree instead of the
-      // entire WhatsApp document. Falls back to full scan automatically
-      // when the viewer has gone or a new one has appeared.
+      // Search the known viewer first. A full document scan is only needed
+      // while idle or after WhatsApp replaces the viewer root.
       const knownViewer = mediaRef.current?.viewer ?? null;
       const detected = findActiveMedia(knownViewer);
       const refreshed = !detected && mediaRef.current ? refreshActiveMedia(mediaRef.current) : null;
-      const next = detected ?? refreshed;
+      const fallback = !detected && !refreshed ? findActiveMedia() : null;
+      const next = detected ?? refreshed ?? fallback;
       if (next) {
         accept(next);
         return;
@@ -727,13 +640,8 @@ export function ContentApp() {
       }
     };
 
-    // Don't schedule an rAF at all when the page is hidden — the browser won't
-    // fire it until the tab is visible again, so we'd just queue a stale frame.
     const schedule = () => { if (!frame && !document.hidden) frame = window.requestAnimationFrame(scan); };
     const observer = new MutationObserver(schedule);
-    // Observe WhatsApp's own root element (#app) rather than the entire document.
-    // This excludes browser-level and extension-level DOM mutations that we never
-    // care about, further reducing unnecessary rAF scheduling.
     const observeTarget = document.getElementById('app') ?? document.documentElement;
     observer.observe(observeTarget, {
       childList: true,
@@ -743,35 +651,63 @@ export function ContentApp() {
     });
     window.addEventListener('resize', schedule, { passive: true });
     window.addEventListener('keydown', schedule, { capture: true });
-    // Only schedule a scan when the page becomes *visible* again, not when
-    // it hides — there's nothing actionable to do while hidden.
-    const onVisibilityChange = () => { if (!document.hidden) schedule(); };
-    document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('visibilitychange', schedule);
     scan();
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', schedule);
       window.removeEventListener('keydown', schedule, true);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('visibilitychange', schedule);
       if (frame) window.cancelAnimationFrame(frame);
       if (graceTimer !== null) window.clearTimeout(graceTimer);
       if (inactiveClearTimer.current) window.clearTimeout(inactiveClearTimer.current);
     };
   }, [settings?.enabled]);
 
-  // Depend only on the profiles array — not the entire settings object — so
-  // this memo doesn't re-run when unrelated settings fields change (quality,
-  // theme, filename template, etc.).
-  const pinnedProfiles = useMemo(
-    () => settings?.profiles.filter((profile) => profile.pinned).slice(0, 4) ?? [],
-    [settings?.profiles],
-  );
+  const pinnedProfiles = useMemo(() => settings?.profiles.filter((profile) => profile.pinned).slice(0, 4) ?? [], [settings]);
 
   const rotate = (direction: -1 | 1) => {
     setTransform((current) => ({ ...current, rotation: ((current.rotation + (direction === 1 ? 90 : 270)) % 360) as Rotation, crop: undefined }));
   };
 
-  const downloadCurrent = async (maxKB?: number, formatOverride?: ImageFormat) => {
+  const updateToolbarSettings = useCallback((patch: Partial<AppSettings>) => {
+    if (!settings) return;
+    void saveSettings({ ...settings, ...patch });
+  }, [settings]);
+
+  const beginToolbarDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (!settings || settings.toolbarLocked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startOffset = toolbarPreviewOffset ?? {
+      x: settings.toolbarOffsetX,
+      y: settings.toolbarOffsetY,
+    };
+    let latest = startOffset;
+    const move = (moveEvent: PointerEvent) => {
+      latest = {
+        x: clampToolbarOffset(startOffset.x + moveEvent.clientX - startX),
+        y: clampToolbarOffset(startOffset.y + moveEvent.clientY - startY),
+      };
+      setToolbarPreviewOffset(latest);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setToolbarPreviewOffset(null);
+      void saveSettings({
+        ...settings,
+        toolbarOffsetX: latest.x,
+        toolbarOffsetY: latest.y,
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [settings, toolbarPreviewOffset]);
+
+  const downloadCurrent = async (maxKB?: number, formatOverride?: ImageFormat, qualityOverride?: number) => {
     if (!media || !settings) return;
     setBusy(true);
     try {
@@ -794,7 +730,7 @@ export function ContentApp() {
         compression: {
           minBytes: kbToBytes(settings.defaultMinKB),
           maxBytes: kbToBytes(maxKB ?? settings.defaultMaxKB),
-          preferredQuality: settings.defaultQuality / 100,
+          preferredQuality: clampQualityPercent(qualityOverride, settings.defaultQuality) / 100,
           minimumQuality: settings.minimumQuality / 100,
           allowDimensionReduction: settings.allowDimensionReduction,
         },
@@ -812,12 +748,12 @@ export function ContentApp() {
   };
 
 
-  const compressCurrentPdf = async (maxKB?: number) => {
+  const compressCurrentPdf = async (maxKB?: number, qualityOverride?: number) => {
     if (!media || media.kind !== 'pdf' || !settings) return;
     setBusy(true);
     try {
       const source = await captureActiveMedia(media);
-      const result = await compressPdfLocally(source, kbToBytes(maxKB ?? settings.defaultMaxKB), settings.defaultQuality / 100, (current, total, note) => {
+      const result = await compressPdfLocally(source, kbToBytes(maxKB ?? settings.defaultMaxKB), clampQualityPercent(qualityOverride, settings.defaultQuality) / 100, (current, total, note) => {
         if (current === 1 || current === total) toast(note);
       });
       const filename = withExtension(renderFilename(settings.defaultFilenameTemplate, { format: 'pdf' }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), 'pdf');
@@ -836,7 +772,7 @@ export function ContentApp() {
     setBusy(true);
     try {
       if (mergeItems.some((item) => item.sourceKey === media.key || item.sourceKey?.startsWith(`${media.key}:page:`))) {
-        setMergeOpen(true);
+        toast('Already in merge stack.');
         return;
       }
       const blob = await captureActiveMedia(media);
@@ -848,7 +784,6 @@ export function ContentApp() {
         setMergeItems((current) => [...current, { id: createId(), blob, name: `Image ${current.length + 1}`, rotation: transform.rotation, crop: transform.crop, placement: { offsetX: 0, offsetY: 0, scale: 1 }, sourceKey: media.key, sourceType: 'image' }]);
         toast('Added current image to merge.');
       }
-      if (settings?.autoOpenMergeWorkspace !== false) setMergeOpen(true);
     } catch (error) {
       toast(error instanceof PrivacySourceError ? 'This media cannot be added privately from its current source.' : (error instanceof Error ? error.message : 'Could not add media.'), true);
     } finally {
@@ -963,12 +898,22 @@ export function ContentApp() {
   };
 
   const executeProfile = async (profile: MediaProfile) => {
-    if (!media || media.kind !== 'image' || !settings || !premium) return;
+    if (!media || media.kind !== 'image' || !settings || !premium || busy) return;
+    setBusy(true);
     try {
+      const response = await browser.runtime.sendMessage({ type: 'billing:verify-online' }) as { ok: boolean; data?: { premium?: boolean; reason?: string }; error?: string };
+      if (!response.ok || !response.data?.premium) {
+        toast(response.data?.reason || response.error || 'Sign in on this device to use pipelines.', true);
+        return;
+      }
       const source = await captureActiveMedia(media);
+      // runPipeline owns the remaining busy lifecycle after this validation.
+      setBusy(false);
       await runPipeline(profile, source);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Pipeline failed.', true);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -976,32 +921,40 @@ export function ContentApp() {
 
   if (!settings || !settings.enabled || !media) return null;
 
-  const toolbarTop = Math.max(10, media.rect.top - 45);
-  const toolbarLeft = Math.max(72, media.rect.left);
+  const viewerRect = media.viewer.getBoundingClientRect();
+  const defaultToolbarDrop = Math.max(32, Math.min(72, viewerRect.height * 0.1));
+  const toolbarOffset = toolbarPreviewOffset ?? { x: settings.toolbarOffsetX, y: settings.toolbarOffsetY };
+  const toolbarTop = Math.max(8, Math.min(innerHeight - 40, viewerRect.top + 8 + defaultToolbarDrop + toolbarOffset.y));
+  const toolbarLeft = Math.max(12, Math.min(innerWidth - 88, viewerRect.left + 12 + toolbarOffset.x));
+  const toolbarSpaceBeforeOfficialControls = Math.max(88, innerWidth - toolbarLeft - 380);
+  const toolbarMaxWidth = Math.min(Math.max(88, viewerRect.width * 0.56), toolbarSpaceBeforeOfficialControls);
   const rotateTop = media.rect.top + media.rect.height / 2 - 19;
   const transformed = media.kind === 'image' ? transformedDimensions(media.element, transform.rotation) : null;
   const cropRect = media.kind === 'image' && transformed ? containRect(media.rect, transformed.width, transformed.height) : media.rect;
 
   return <div className="ma-root">
     {media.kind === 'image' && <PreviewCanvas media={media} transform={transform} />}
-    <div className={`ma-toolbar${settings.showToolbarLabels ? '' : ' icons-only'}`} style={{ top: toolbarTop, left: toolbarLeft }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+    <div className={`ma-toolbar${settings.showToolbarLabels ? '' : ' icons-only'}`} style={{ top: toolbarTop, left: toolbarLeft, maxWidth: toolbarMaxWidth }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      <button className={`ma-toolbar-control${settings.toolbarLocked ? ' disabled' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar to move' : 'Drag toolbar'} disabled={settings.toolbarLocked} onPointerDown={beginToolbarDrag}><Icon name="more" size={15} /></button>
+      <button className={`ma-toolbar-control${settings.toolbarLocked ? ' locked' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar' : 'Lock toolbar'} onClick={() => updateToolbarSettings({ toolbarLocked: !settings.toolbarLocked })}><Icon name="lock" size={15} /></button>
       {media.kind === 'image' && premium && pinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{profile.name}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}
       {media.kind === 'image' && <button className="ma-tool-btn" title="Crop" onClick={() => { setCropMode(true); setQuickPanel(null); }}><Icon name="crop" /><span>Crop</span></button>}
       {media.kind === 'image' && <button className="ma-tool-btn" title="Resize" onClick={() => setQuickPanel((current) => current === 'resize' ? null : 'resize')}><Icon name="resize" /><span>Resize</span></button>}
       <button className="ma-tool-btn" title={media.kind === 'pdf' ? 'Compress PDF' : 'Compress and download'} onClick={() => setQuickPanel((current) => current === (media.kind === 'pdf' ? 'pdf-compress' : 'compress') ? null : (media.kind === 'pdf' ? 'pdf-compress' : 'compress'))}><Icon name="compress" /><span>{media.kind === 'pdf' ? 'Compress PDF' : 'Compress'}</span></button>
-      <button className="ma-tool-btn merge" title="Add to merge" disabled={busy} onClick={() => void addCurrentToMerge()}><Icon name="plus" /><span>Add to merge</span>{mergeItems.length > 0 && <b className="ma-count">{mergeItems.length}</b>}</button>
+      <div className="ma-button-group">
+        <button className="ma-tool-btn merge" title="Add to merge" disabled={busy} onClick={() => void addCurrentToMerge()}><Icon name="plus" /><span>Add to merge</span>{mergeItems.length > 0 && <b className="ma-count">{mergeItems.length}</b>}</button>
+        {mergeItems.length > 0 && !mergeOpen && <button className="ma-tool-btn stack" title="Open merge stack" onClick={() => setMergeOpen(true)}><Icon name="merge" /><span>Stack</span><b className="ma-count">{mergeItems.length}</b></button>}
+      </div>
       <button className="ma-tool-btn" title="Download with saved defaults" disabled={busy} onClick={() => void downloadCurrent()}><Icon name="download" /><span>Download</span></button>
-      {mergeItems.length > 0 && !mergeOpen && <button className="ma-tool-btn stack" title="Open merge stack" onClick={() => setMergeOpen(true)}><Icon name="merge" /><span>Stack</span><b className="ma-count">{mergeItems.length}</b></button>}
     </div>
 
     {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: Math.max(82, media.rect.left + 12), top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={22} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: Math.min(innerWidth - 52, media.rect.right - 50), top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={22} /><span>Rotate right</span></button></>}
 
     {quickPanel === 'resize' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} onApply={(resize) => setTransform((current) => ({ ...current, resize }))} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'compress' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} onDownload={(maxKB, format) => void downloadCurrent(maxKB, format)} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB) => void compressCurrentPdf(maxKB)} onClose={() => setQuickPanel(null)} /></div>}
+    {quickPanel === 'compress' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality)} onClose={() => setQuickPanel(null)} /></div>}
+    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality)} onClose={() => setQuickPanel(null)} /></div>}
     {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} initial={transform.crop} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { setTransform((current) => ({ ...current, crop })); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); }} />}
     {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
-    {/* role="status" + aria-live lets screen readers announce toast messages automatically */}
-    <div className="ma-toast-stack" role="status" aria-live="polite" aria-atomic="false">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
+    <div className="ma-toast-stack">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
   </div>;
 }

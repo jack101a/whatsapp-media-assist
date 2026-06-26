@@ -33,11 +33,11 @@ const profile = {
 };
 const initialStore = {
   mediaAssistBilling: { deviceId, email: 'owner@example.com', entitlementToken: token },
-  mediaAssistSettings: { enabled: true, showToolbarLabels: true, showRotateControls: true, autoOpenMergeWorkspace: true, profiles: [profile] },
+  mediaAssistSettings: { enabled: true, showToolbarLabels: true, showRotateControls: true, autoOpenMergeWorkspace: false, profiles: [profile] },
 };
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
-const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+let browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
+let context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
 
 async function mockChrome(page, storeSeed = initialStore) {
   await page.evaluate(({ storeSeed }) => {
@@ -55,6 +55,7 @@ async function mockChrome(page, storeSeed = initialStore) {
         openOptionsPage: async () => {},
         sendMessage: async (request) => {
           if (request?.type === 'billing:get-status') return { ok: true, data: { signedIn: true, email: 'owner@example.com', premium: true, deviceId: 'screenshot-device-0001', entitlement: { subscriptionExpiresAt: Date.now() + 31_536_000_000 } } };
+if (request?.type === 'billing:verify-online') return { ok: true, data: { premium: true } };
           if (request?.type === 'billing:get-product') return { ok: true, data: { name: 'Media Assist Pro', duration_days: 365, prices: [{ currency: 'INR', amount_minor: 50000, label: '₹500 / 365 days' }, { currency: 'USD', amount_minor: 499, label: '$4.99 / 365 days' }] } };
           return { ok: false, error: 'Screenshot action unavailable' };
         },
@@ -117,21 +118,42 @@ try {
   await options.screenshot({ path: join(screenshots, '02-pipeline-builder.png') });
   await options.close();
 
-  const merge = await createMediaPage('ID front', svg('ID FRONT', '#247f71', '#243f66'));
+  // A fresh browser context prevents lifecycle state from one screenshot page
+  // from affecting the next injected content-script fixture.
+  await context.close().catch(() => {});
+  await browser.close().catch(() => {});
+  let merge;
+  let lastMergeError;
+  for (let attempt = 0; attempt < 3 && !merge; attempt += 1) {
+    try {
+      browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
+      context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+      merge = await createMediaPage('ID front', svg('ID FRONT', '#247f71', '#243f66'));
+    } catch (error) {
+      lastMergeError = error;
+      await context?.close().catch(() => {});
+      await browser?.close().catch(() => {});
+    }
+  }
+  if (!merge) throw lastMergeError ?? new Error('Could not create merge screenshot fixture.');
   await merge.locator('#media-assist-extension-root').evaluate((host) => [...host.shadowRoot.querySelectorAll('.ma-tool-btn')].find((button) => button.textContent.includes('Add to merge'))?.click());
+  await merge.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-tool-btn.stack'));
+  await merge.locator('#media-assist-extension-root').evaluate((host) => host.shadowRoot.querySelector('.ma-tool-btn.stack')?.click());
   await merge.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-modal'));
   await merge.locator('#media-assist-extension-root').evaluate((host) => host.shadowRoot.querySelector('.ma-modal-head .ma-icon-btn')?.click());
   await merge.evaluate((source) => { document.querySelector('#opened-media').src = source; }, svg('ID BACK', '#7b4f91', '#263a58'));
   await merge.locator('#opened-media').evaluate((image) => image.decode());
   await merge.waitForTimeout(180);
   await merge.locator('#media-assist-extension-root').evaluate((host) => [...host.shadowRoot.querySelectorAll('.ma-tool-btn')].find((button) => button.textContent.includes('Add to merge'))?.click());
+  await merge.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-tool-btn.stack'));
+  await merge.locator('#media-assist-extension-root').evaluate((host) => host.shadowRoot.querySelector('.ma-tool-btn.stack')?.click());
   await merge.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelectorAll('.ma-merge-item').length === 2);
   await merge.locator('#media-assist-extension-root').evaluate((host) => host.shadowRoot?.querySelector('.ma-toast-stack')?.remove());
   await merge.screenshot({ path: join(screenshots, '03-a4-merge-workspace.png') });
   await merge.close();
 } finally {
-  await context.close();
-  await browser.close();
+  await context.close().catch(() => {});
+  await browser.close().catch(() => {});
   rmSync(tempOptions, { force: true });
 }
-console.log('Generated v1.3 store screenshots from the compiled product UI.');
+console.log('Generated v1.4 store screenshots from the compiled product UI.');

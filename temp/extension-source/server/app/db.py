@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -13,20 +14,26 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
+is_sqlite = settings.database_url.startswith('sqlite:')
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=not is_sqlite,
+    future=True,
+    connect_args={'check_same_thread': False, 'timeout': 10} if is_sqlite else {},
+)
 
-# SQLite needs check_same_thread=False because FastAPI dispatches sync routes
-# on a thread-pool. pool_pre_ping is omitted — it's a no-op for file-based DBs.
-_connect_args = {'check_same_thread': False} if settings.database_url.startswith('sqlite') else {}
-engine = create_engine(settings.database_url, connect_args=_connect_args, future=True)
 
-# Enable WAL journal mode for SQLite so concurrent reads don't block writes.
-# Safe to call on non-SQLite engines — the event simply won't fire.
-if settings.database_url.startswith('sqlite'):
-    @event.listens_for(engine, 'connect')
-    def _set_wal_mode(dbapi_connection, _connection_record):  # type: ignore[misc]
-        dbapi_connection.execute('PRAGMA journal_mode=WAL')
-        dbapi_connection.execute('PRAGMA synchronous=NORMAL')
-        dbapi_connection.execute('PRAGMA foreign_keys=ON')
+if is_sqlite:
+    @event.listens_for(Engine, 'connect')
+    def configure_sqlite(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
+        cursor = dbapi_connection.cursor()
+        cursor.execute('PRAGMA foreign_keys=ON')
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA synchronous=NORMAL')
+        cursor.execute('PRAGMA busy_timeout=10000')
+        cursor.execute('PRAGMA temp_store=MEMORY')
+        cursor.close()
+
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, class_=Session)
 

@@ -3,21 +3,28 @@ export const CONTENT_STYLES = `
 *, *::before, *::after { box-sizing: border-box; }
 .ma-root { position: fixed; inset: 0; z-index: 2147483600; pointer-events: none; font-family: Inter, Arial, Helvetica, sans-serif; color: #e9edef; font-size: 13px; }
 button, input, select { font: inherit; }
-.ma-toolbar { position: fixed; max-width: calc(100vw - 150px); height: 40px; padding: 3px 5px; display: flex; align-items: center; gap: 2px; overflow-x: auto; overflow-y: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(17,27,33,.94); box-shadow: 0 5px 18px rgba(0,0,0,.26); backdrop-filter: blur(10px); pointer-events: auto; scrollbar-width: none; }
+.ma-toolbar { position: fixed; height: 31px; padding: 3px; display: flex; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden; border: 1px solid rgba(255,255,255,.09); border-radius: 7px; background: rgba(17,27,33,.9); box-shadow: 0 1px 5px rgba(0,0,0,.2); pointer-events: auto; scrollbar-width: none; contain: layout paint style; }
 .ma-toolbar::-webkit-scrollbar { display: none; }
-.ma-tool-btn, .ma-profile-btn { position: relative; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; border: 0; border-radius: 7px; color: #d9e1e4; background: transparent; cursor: pointer; }
-.ma-tool-btn { min-width: 32px; padding: 0 9px; }
-.ma-tool-btn > span { font-size: 11px; font-weight: 650; white-space: nowrap; }
-.ma-tool-btn:hover, .ma-profile-btn:hover { color: white; background: rgba(255,255,255,.09); }
-.ma-tool-btn:disabled, .ma-profile-btn:disabled { opacity: .45; cursor: wait; }
-.ma-toolbar.icons-only .ma-tool-btn { width: 32px; padding: 0; }
+.ma-tool-btn, .ma-profile-btn, .ma-toolbar-control { position: relative; height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; border: 1px solid rgba(255,255,255,.08); border-radius: 7px; color: #d9e1e4; background: rgba(255,255,255,.035); cursor: pointer; }
+.ma-tool-btn { min-width: 24px; padding: 0 6px; }
+.ma-tool-btn > span { font-size: 9.5px; font-weight: 650; white-space: nowrap; }
+.ma-tool-btn:hover, .ma-profile-btn:hover, .ma-toolbar-control:hover { color: white; background: rgba(255,255,255,.09); }
+.ma-tool-btn:disabled, .ma-profile-btn:disabled, .ma-toolbar-control:disabled { opacity: .45; cursor: wait; }
+.ma-toolbar.icons-only .ma-tool-btn { width: 24px; padding: 0; }
 .ma-toolbar.icons-only .ma-tool-btn > span { display: none; }
-.ma-profile-btn { max-width: 130px; padding: 0 9px; border: 1px solid rgba(0,168,132,.35); background: rgba(0,168,132,.11); color: #e9fff9; }
-.ma-profile-btn span { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; }
+.ma-profile-btn { max-width: 88px; padding: 0 6px; border: 1px solid rgba(0,168,132,.35); background: rgba(0,168,132,.11); color: #e9fff9; }
+.ma-toolbar-control { width: 24px; padding: 0; cursor: grab; }
+.ma-toolbar-control.locked { border-color: rgba(0,168,132,.42); color: #e9fff9; background: rgba(0,168,132,.16); cursor: pointer; }
+.ma-toolbar-control.disabled { cursor: not-allowed; }
+.ma-button-group { height: 25px; padding: 1px; display: inline-flex; align-items: center; gap: 2px; flex: none; border: 1px solid rgba(0,168,132,.25); border-radius: 8px; background: rgba(0,168,132,.08); }
+.ma-button-group .ma-tool-btn { height: 21px; border-color: transparent; background: transparent; }
+.ma-button-group .ma-tool-btn:hover { background: rgba(0,168,132,.22); }
+.ma-toolbar.icons-only .ma-button-group .ma-tool-btn { width: 24px; padding: 0; }
+.ma-profile-btn span { max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; font-weight: 700; }
 .ma-profile-btn b { min-width: 23px; padding: 2px 4px; border-radius: 999px; background: rgba(255,255,255,.1); font-size: 9px; }
 .ma-count { min-width: 17px; height: 17px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #00a884; color: white; font-size: 9px; font-weight: 800; }
 .ma-toolbar.icons-only .ma-count { position: absolute; right: -2px; top: -3px; }
-.ma-rotate-btn { position: fixed; min-width: 40px; height: 40px; padding: 0 10px; border: 0; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; color: white; background: rgba(17,27,33,.9); box-shadow: 0 5px 18px rgba(0,0,0,.3); backdrop-filter: blur(8px); pointer-events: auto; cursor: pointer; }
+.ma-rotate-btn { position: fixed; min-width: 34px; height: 34px; padding: 0 7px; border: 0; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; color: white; background: rgba(17,27,33,.9); box-shadow: 0 5px 18px rgba(0,0,0,.3); pointer-events: auto; cursor: pointer; }
 .ma-rotate-btn span { position: absolute; top: 46px; width: max-content; padding: 4px 7px; border-radius: 5px; background: rgba(17,27,33,.92); color: #d8e1e4; font-size: 9px; opacity: 0; transform: translateY(-3px); transition: .12s; pointer-events: none; }
 .ma-rotate-btn:hover { background: rgba(0,168,132,.35); }
 .ma-rotate-btn:hover span { opacity: 1; transform: translateY(0); }
@@ -28,10 +35,10 @@ button, input, select { font: inherit; }
 .ma-icon-btn { width: 30px; height: 30px; border: 0; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; color: #dce4e7; background: transparent; cursor: pointer; }
 .ma-icon-btn:hover { background: rgba(255,255,255,.09); }
 .ma-mini-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.ma-mini-grid label, .ma-merge-settings label { display: flex; flex-direction: column; gap: 5px; color: #9fb0b8; font-size: 10px; font-weight: 650; }
+.ma-mini-grid label, .ma-merge-settings label { display: flex; flex-direction: column; gap: 5px; color: #9fb0b8; font-size: 9.5px; font-weight: 650; }
 .ma-mini-grid input, .ma-mini-grid select, .ma-merge-settings input, .ma-merge-settings select { width: 100%; height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.11); border-radius: 7px; background: #202c33; color: white; outline: none; }
 .ma-mini-grid input:focus, .ma-mini-grid select:focus, .ma-merge-settings input:focus, .ma-merge-settings select:focus { border-color: #00a884; box-shadow: 0 0 0 2px rgba(0,168,132,.13); }
-.ma-single-field { display: flex; flex-direction: column; gap: 5px; color: #9fb0b8; font-size: 10px; font-weight: 650; }
+.ma-single-field { display: flex; flex-direction: column; gap: 5px; color: #9fb0b8; font-size: 9.5px; font-weight: 650; }
 .ma-single-field input { width: 100%; height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.11); border-radius: 7px; background: #202c33; color: white; outline: none; }
 .ma-single-field input:focus { border-color: #00a884; box-shadow: 0 0 0 2px rgba(0,168,132,.13); }
 .ma-panel-note { margin: 9px 0 0; color: #8696a0; font-size: 9px; line-height: 1.45; }
@@ -52,11 +59,6 @@ button, input, select { font: inherit; }
 .ma-handle.sw { left: -9px; bottom: -9px; cursor: nesw-resize; }
 .ma-handle.se { right: -9px; bottom: -9px; cursor: nwse-resize; }
 .ma-crop-controls { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; gap: 7px; padding: 6px; border-radius: 9px; background: rgba(17,27,33,.98); box-shadow: 0 10px 28px rgba(0,0,0,.4); }
-.ma-crop-ratios { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); display: flex; gap: 5px; padding: 5px; border-radius: 9px; background: rgba(17,27,33,.98); box-shadow: 0 10px 28px rgba(0,0,0,.4); z-index: 5; }
-.ma-ratio-btn { min-height: 28px; padding: 0 9px; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; color: #aebbc1; background: #202c33; font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.ma-ratio-btn:hover { background: #2a3941; color: white; }
-.ma-ratio-btn.active { border-color: #00a884; background: rgba(0,168,132,.16); color: #00d6a3; font-weight: 600; }
-
 .ma-backdrop { position: fixed; inset: 0; z-index: 5; padding: 22px; display: flex; align-items: center; justify-content: center; background: rgba(3,10,12,.75); backdrop-filter: blur(4px); pointer-events: auto; }
 .ma-modal { width: min(1240px, 97vw); max-height: 94vh; overflow: auto; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: #111b21; box-shadow: 0 24px 80px rgba(0,0,0,.6); }
 .ma-modal-head { position: sticky; top: 0; z-index: 7; min-height: 64px; padding: 13px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.08); background: rgba(17,27,33,.98); }

@@ -1,40 +1,38 @@
 # Media Assist for WhatsApp Web
 
-Media Assist adds local image and PDF tools to the opened WhatsApp Web media viewer.
+Media Assist adds lightweight image and PDF tools only when media is opened in WhatsApp Web.
 
-## Included
+## Features
 
-- Crop, rotate, resize, convert and compress images
-- Compress scanned/image-based PDFs locally
-- Add images or PDF pages to an A4 merge stack
-- Top/bottom, side-by-side and image grid layouts
-- Light full-page Options interface
-- Small popup with Enable/Disable and Settings only
-- Pro pipelines: combine multiple steps into a named WhatsApp toolbar button
-- Online annual Pro activation through Razorpay
-- Email OTP login, device management and 72-hour signed offline entitlement grace
+- Live crop and rotate preview
+- Resize, convert and target-size compression
+- A4 image/PDF merge workspace
+- Top/bottom, side-by-side and image-only grid layouts
+- Small popup: Enable/Disable and Settings
+- Full light-theme Options page
+- Pro pipelines that create named one-click WhatsApp toolbar buttons
+- Email OTP login and automatic settings/pipeline sync
+- One active device per account
+- Razorpay annual Pro activation
 
-## Privacy boundary
+## Privacy
 
-WhatsApp media processing runs inside the browser. Images, PDFs, filenames, chats, contacts and WhatsApp URLs are not sent to the licensing server.
+Images, PDFs, chats, contacts, filenames and WhatsApp URLs stay on the device. The server receives only account, device, payment, entitlement, pipeline and extension-preference data.
 
-The licensing API receives only account, device, payment and entitlement records.
+## Architecture
 
-## Repository layout
+- `entrypoints/`, `src/` — Chrome/Firefox extension
+- `server/` — lightweight FastAPI + SQLite licensing API
+- `deploy/` — one-container Docker deployment and SQLite backup tools
+- `tests/`, `server/tests/` — extension and API tests
 
-- `entrypoints/` — popup, Options, background and WhatsApp content entrypoints
-- `src/` — processing, UI, storage, billing and WhatsApp adapter modules
-- `server/` — FastAPI licensing/payment API
-- `deploy/` — Docker Compose and reverse-proxy deployment files
-- `tests/` — extension tests
-- `server/tests/` — API security and purchase-flow tests
-- `store-assets/` — Chrome Web Store screenshots and promotional artwork
+The SQLite database runs in WAL mode with one API worker. Heavy image/PDF processing is loaded only when requested and is removed after it becomes idle.
 
-## Development
+## Build
 
 ```bash
 npm ci
-npm run build
+npm run release
 ```
 
 Server tests:
@@ -42,22 +40,18 @@ Server tests:
 ```bash
 python -m venv .venv
 . .venv/bin/activate
-pip install -r server/requirements.txt
+pip install -r server/requirements-dev.txt
 PYTHONPATH=server pytest -q server/tests
 ```
 
-## Production builds
-
-The default API origin is:
+Default API origin:
 
 ```text
 https://mediaassist.002529.xyz
 ```
 
-To use another domain, rebuild with:
+Override it while building:
 
 ```bash
 VITE_MEDIA_ASSIST_API_ORIGIN=https://your-api.example.com npm run release
 ```
-
-See `DEPLOYMENT.md` before publishing.

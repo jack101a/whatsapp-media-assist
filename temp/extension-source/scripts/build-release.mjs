@@ -23,7 +23,7 @@ cpSync('store-assets', join(release, 'store-assets'), { recursive: true });
 cpSync('.output/chrome-mv3', join(release, 'chrome-unpacked'), { recursive: true });
 cpSync('.output/firefox-mv3', join(release, 'firefox-unpacked'), { recursive: true });
 
-const docs = ['README.md', 'PRIVACY_POLICY.md', 'STORE_LISTING.md', 'DEPLOYMENT.md', 'SECURITY.md', 'BUILD-VERIFICATION.txt', 'INSTALL-AND-PUBLISH.txt', 'PATCH-NOTES-1.3.0.md', 'LICENSE'];
+const docs = ['README.md', 'PRIVACY_POLICY.md', 'STORE_LISTING.md', 'DEPLOYMENT.md', 'SECURITY.md', 'BUILD-VERIFICATION.txt', 'INSTALL-AND-PUBLISH.txt', 'PATCH-NOTES-1.4.0.md', 'LICENSE'];
 for (const file of docs) cpSync(file, join(release, file));
 
 function addTree(zip, root, prefix, excluded = () => false) {

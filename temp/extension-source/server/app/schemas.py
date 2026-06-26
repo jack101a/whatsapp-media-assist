@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class MessageResponse(BaseModel):
@@ -35,12 +36,43 @@ class CheckoutRequest(BaseModel):
     currency: Literal['INR', 'USD'] = 'INR'
 
 
+class SettingsSyncResponse(BaseModel):
+    revision: int = 0
+    updated_at: datetime | None = None
+    settings: dict[str, Any] | None = None
+
+
+class SettingsSyncRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    settings: dict[str, Any]
+
+    @field_validator('settings')
+    @classmethod
+    def validate_settings(cls, value: dict[str, Any]) -> dict[str, Any]:
+        encoded = json.dumps(value, separators=(',', ':'), ensure_ascii=False)
+        if len(encoded.encode('utf-8')) > 262_144:
+            raise ValueError('Settings are too large')
+        profiles = value.get('profiles', [])
+        if not isinstance(profiles, list) or len(profiles) > 50:
+            raise ValueError('Too many pipelines')
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                raise ValueError('Invalid pipeline')
+            if len(str(profile.get('name', ''))) > 48:
+                raise ValueError('Pipeline name is too long')
+            steps = profile.get('steps', [])
+            if not isinstance(steps, list) or len(steps) > 20:
+                raise ValueError('Pipeline has too many steps')
+        return value
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = 'bearer'
     entitlement_token: str | None = None
     email: EmailStr
+    settings_sync: SettingsSyncResponse | None = None
 
 
 class EntitlementResponse(BaseModel):
@@ -50,8 +82,6 @@ class EntitlementResponse(BaseModel):
     refresh_after: datetime | None = None
     offline_until: datetime | None = None
     entitlement_token: str | None = None
-
-
 
 
 class ProductPrice(BaseModel):
@@ -86,12 +116,4 @@ class AccountResponse(BaseModel):
     email: EmailStr
     devices: list[DeviceResponse]
     entitlement: EntitlementResponse
-
-
-class SettingsResponse(BaseModel):
-    settings_json: str | None = None
-
-
-class SettingsUpdateRequest(BaseModel):
-    settings_json: str
-
+    settings_sync: SettingsSyncResponse

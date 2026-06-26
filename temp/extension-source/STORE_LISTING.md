@@ -6,68 +6,44 @@ Media Assist for WhatsApp Web
 
 ## Short description
 
-Crop, resize, compress, merge and automate opened WhatsApp Web media locally.
+Crop, resize, compress, merge and automate media opened in WhatsApp Web.
 
-## Detailed description
+## Description
 
-Media Assist adds a compact toolbar when you open an image or PDF in WhatsApp Web.
+Media Assist adds a compact labeled toolbar only when an image or PDF is opened.
 
-Features:
+- live crop and rotate preview
+- resize, convert and compress images
+- compress scanned PDFs
+- merge images or PDF pages on A4
+- top/bottom, side-by-side and image-only grid layouts
+- named Pro pipeline buttons for repeated workflows
+- email OTP login and settings sync
 
-- crop and rotate with live preview
-- resize and convert images
-- compress images and scanned PDFs
-- combine images or PDF pages on A4
-- top/bottom, side-by-side and image grid layouts
-- local processing without media uploads
-- Pro pipelines for repeated workflows
+A pipeline such as **Upload1** can combine crop, resize, JPEG conversion, target file size, filename rules and automatic download into one button.
 
-Create a pipeline such as “Upload1” with crop, resize, JPEG conversion, target file size, filename style and automatic download. Pin it as one button in the WhatsApp media toolbar.
+WhatsApp media stays on the device. Media Assist does not read chats, captions, contacts or conversation history.
 
-Media Assist does not read chats, captions, contacts or conversation history.
+## Permissions
 
-## Single purpose
+- **Storage:** preferences, pipelines, account session and signed entitlement
+- **Alarms:** lightweight entitlement/settings refresh without continuous polling
+- **web.whatsapp.com:** detects the opened media viewer and displays local tools
+- **Licensing API:** OTP login, settings sync, checkout and Pro entitlement
 
-Local processing and export of media explicitly opened by the user in WhatsApp Web.
+## Data disclosure
 
-## Permission explanations
+Processed:
 
-### Storage
-
-Stores extension settings, pipelines, account session and signed entitlement.
-
-### Alarms
-
-Refreshes Pro entitlement periodically without running continuous polling.
-
-### web.whatsapp.com host access
-
-Detects an opened media viewer and adds local media tools. It is not used to read chats or contacts.
-
-### Licensing API host access
-
-Used only for email sign-in, account/device management, checkout creation and Pro entitlement status.
-
-## Data disclosure summary
-
-Collected:
-
-- email address
-- authentication information
-- random device/installation identifier
+- email and authentication data
+- random device ID
 - payment and entitlement status
+- extension preferences and pipeline configurations
 
-Not collected:
+Not processed:
 
-- WhatsApp images or PDFs
-- messages, captions, contacts or phone numbers
-- WhatsApp URLs or downloaded filenames
+- WhatsApp media, chats, captions, contacts, phone numbers or filenames
 
 ## Pricing
 
-One annual Pro product:
-
-- ₹500 for 365 days
-- US$4.99 for 365 days when international checkout is enabled
-
-Free manual media tools remain available. Pro unlocks saved pipeline buttons.
+One annual Pro product: ₹500 for 365 days; US$4.99 when international checkout is enabled.

@@ -20,6 +20,9 @@ export interface BillingState {
   entitlementToken?: string;
   lastCheckedAt?: number;
   lastError?: string;
+  settingsRevision?: number;
+  settingsSyncPending?: boolean;
+  lastSettingsSyncAt?: number;
 }
 
 export interface EntitlementStatus {
@@ -37,9 +40,16 @@ export interface AccountDevice {
   created_at: string;
 }
 
+export interface SettingsSyncData {
+  revision: number;
+  updated_at?: string;
+  settings?: Record<string, unknown>;
+}
+
 export interface AccountData {
   email: string;
   devices: AccountDevice[];
+  settings_sync: SettingsSyncData;
   entitlement: {
     plan: 'free' | 'pro';
     status: string;

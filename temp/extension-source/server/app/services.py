@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 from .config import Settings
 from .models import Device, RefreshToken, Subscription, User
 from .security import EntitlementSigner, create_access_token, new_refresh_token, secure_token_hash
-from .timeutils import as_utc, utcnow  # single source of truth — no local duplicate
+from .timeutils import as_utc
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def active_subscription(db: Session, user_id: str) -> Subscription | None:
@@ -26,8 +30,8 @@ def create_entitlement(settings: Settings, signer: EntitlementSigner, *, user: U
     if not subscription:
         return None, {'plan': 'free', 'status': 'inactive', 'expires_at': None, 'refresh_after': None, 'offline_until': None}
     subscription_expires = as_utc(subscription.expires_at)
-    refresh_after = min(subscription_expires, now + timedelta(hours=settings.entitlement_refresh_hours))
-    offline_until = min(subscription_expires, now + timedelta(hours=settings.entitlement_grace_hours))
+    refresh_after = min(subscription_expires, now + timedelta(minutes=settings.entitlement_refresh_minutes))
+    offline_until = min(subscription_expires, now + timedelta(minutes=settings.entitlement_grace_minutes))
     payload = {
         'licenseId': subscription.id,
         'tier': 'premium',
