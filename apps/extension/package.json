@@ -34,7 +34,7 @@
     "@wxt-dev/module-react": "1.2.2",
     "adm-zip": "^0.5.16",
     "esbuild": "^0.27.7",
-    "playwright-core": "^1.57.0",
+    "playwright-core": "^1.61.1",
     "typescript": "^6.0.3",
     "vite": "^7.3.0",
     "vitest": "^4.0.16",
