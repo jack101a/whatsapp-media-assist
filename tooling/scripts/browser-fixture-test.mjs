@@ -1,13 +1,34 @@
-import { readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
-import { build } from 'esbuild';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const project = process.cwd();
+const requireFromProject = createRequire(join(project, 'package.json'));
+const importFromProject = (packageName) => import(pathToFileURL(requireFromProject.resolve(packageName)).href);
+const playwrightCore = await importFromProject('playwright-core');
+const { chromium } = playwrightCore.chromium ? playwrightCore : playwrightCore.default;
+const { build } = await importFromProject('esbuild');
+const { PDFDocument, StandardFonts, rgb } = await importFromProject('pdf-lib');
 const output = join(project, '.output/chrome-mv3');
 const tempPopup = join(project, '.tmp-popup-fixture.js');
 const tempOptions = join(project, '.tmp-options-fixture.js');
+
+function findChromiumExecutable() {
+  const candidates = [
+    process.env.CHROMIUM_PATH,
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe'),
+    process.env.PROGRAMFILES && join(process.env.PROGRAMFILES, 'Google/Chrome/Application/chrome.exe'),
+    process.env['PROGRAMFILES(X86)'] && join(process.env['PROGRAMFILES(X86)'], 'Google/Chrome/Application/chrome.exe'),
+    process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Microsoft/Edge/Application/msedge.exe'),
+    process.env.PROGRAMFILES && join(process.env.PROGRAMFILES, 'Microsoft/Edge/Application/msedge.exe'),
+    process.env['PROGRAMFILES(X86)'] && join(process.env['PROGRAMFILES(X86)'], 'Microsoft/Edge/Application/msedge.exe'),
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate));
+}
 
 const ignoreCss = {
   name: 'ignore-css',
@@ -18,7 +39,8 @@ const ignoreCss = {
 await build({ entryPoints: [join(project, 'entrypoints/popup/main.tsx')], bundle: true, format: 'iife', platform: 'browser', outfile: tempPopup, plugins: [ignoreCss] });
 await build({ entryPoints: [join(project, 'entrypoints/options/main.tsx')], bundle: true, format: 'iife', platform: 'browser', outfile: tempOptions, plugins: [ignoreCss] });
 
-const browser = await chromium.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
+const executablePath = findChromiumExecutable();
+const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, acceptDownloads: true });
 
 async function installChromeMock(page, initialStore = {}, premium = false) {
@@ -183,6 +205,8 @@ try {
       document.body.append(viewer);
     }, svgData(label));
     await page.locator('#opened-media').evaluate((img) => img.decode());
+    await page.waitForTimeout(700);
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     await page.waitForFunction(() => document.querySelector('#media-assist-extension-root')?.shadowRoot?.querySelector('.ma-toolbar'));
   };
 

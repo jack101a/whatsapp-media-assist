@@ -1,7 +1,7 @@
 export const ENTITLEMENT_PUBLIC_KEY = {
   "kty": "EC",
   "crv": "P-256",
-  "x": "jbxc0jFvsQfO6Sutp_8hM5Hh36UNjhq8CPruhNDaNEU",
-  "y": "GyejelWOUu9EWOLq6h2heH2ILbtEtWwcCcUbLgq9jY8",
+  "x": "7qF5vR_ShgOLwscT6YBDPoXAn9cQBXA9cAz_B1NvPvo",
+  "y": "6AnR7M06Kf_94Qi6eWqtFv9EzWgKk4BJ2LeQT2YR_xU",
   "ext": true
 } as JsonWebKey;

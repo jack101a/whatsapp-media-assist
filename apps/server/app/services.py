@@ -98,6 +98,35 @@ def issue_session(db: Session, settings: Settings, signer: EntitlementSigner, *,
     return access, raw_refresh, entitlement_token
 
 
+def _step_with_id(step: dict) -> dict:
+    return {**step, 'id': step.get('id') or str(uuid.uuid4())}
+
+
+def _template_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _profile_from_template(template_id: str, template_name: str, payload: dict) -> dict:
+    steps = payload.get('steps')
+    if not isinstance(steps, list):
+        steps = []
+    input_count = _template_int(payload.get('inputCount'), 1)
+    return {
+        'id': template_id,
+        'name': template_name,
+        'pinned': bool(payload.get('pinned', True)),
+        'inputCount': max(1, min(20, input_count)),
+        'mergeLayout': payload.get('mergeLayout') if payload.get('mergeLayout') in {'vertical', 'horizontal', 'grid'} else 'vertical',
+        'background': payload.get('background') or '#ffffff',
+        'steps': [_step_with_id(step) for step in steps if isinstance(step, dict)],
+        'createdAt': int(time.time() * 1000),
+        'updatedAt': int(time.time() * 1000),
+    }
+
+
 def sync_plan_templates_to_user(db: Session, user: User, plan: Plan) -> None:
     """Inject pipeline templates into the user's synced settings on plan upgrade/payment.
     Only 'pipelines' category templates are written into settings_json (as profiles[]).
@@ -128,14 +157,7 @@ def sync_plan_templates_to_user(db: Session, user: User, plan: Plan) -> None:
             payload = _json.loads(t.payload_json) if t.payload_json else {}
         except Exception:
             continue
-        # Build a valid MediaProfile shape
-        profile = {
-            'id': t.id,
-            'name': t.name,
-            'pinnedButton': False,
-            'steps': payload.get('steps', []),
-        }
-        existing_profiles.append(profile)
+        existing_profiles.append(_profile_from_template(t.id, t.name, payload))
         added = True
 
     if added:
