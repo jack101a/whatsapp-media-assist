@@ -1,0 +1,36 @@
+# Normalize line endings to LF for all text files
+* text=auto eol=lf
+
+# Python
+*.py text eol=lf
+
+# TypeScript / JavaScript
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+
+# HTML / CSS
+*.html text eol=lf
+*.css text eol=lf
+
+# Markdown / Docs
+*.md text eol=lf
+*.txt text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.ini text eol=lf
+*.toml text eol=lf
+Dockerfile text eol=lf
+*.sh text eol=lf
+
+# Binaries — do not touch
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wasm binary
+*.mjs binary
+public/pdfjs-worker.mjs binary

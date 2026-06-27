@@ -1,0 +1,28 @@
+<!-- TAB: TEMPLATES -->
+    <div id="panel-templates" class="dashboard-panel">
+      <div class="filter-bar" style="display:flex; justify-content:flex-end;">
+        <button onclick="openCreateTemplateModal()" class="btn primary">Create Preset Template</button>
+      </div>
+      
+      <div class="modal-tabs" style="margin-bottom: 16px;">
+        <button onclick="switchTemplateCatTab('image_defaults')" id="tpl-tab-image_defaults" class="modal-tab-btn active">Image Defaults</button>
+        <button onclick="switchTemplateCatTab('merge_pdf')" id="tpl-tab-merge_pdf" class="modal-tab-btn">Merge & PDF</button>
+        <button onclick="switchTemplateCatTab('pipelines')" id="tpl-tab-pipelines" class="modal-tab-btn">Pipelines</button>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Preset ID</th>
+              <th>Preset Name</th>
+              <th>Configuration Size</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="templates-table-body">
+            <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Loading presets...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>

@@ -1,0 +1,56 @@
+# ── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+.output/
+.wxt/
+.tmp-*/
+
+# ── Python / Backend ─────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# ── SQLite runtime files (NEVER commit) ──────────────────────────────────────
+*.db
+*.db-wal
+*.db-shm
+server/data/
+
+# ── Private keys & secrets ───────────────────────────────────────────────────
+*.pem
+*.key
+*.jwk.json
+.env
+.env.*
+server/.env
+deploy/.env
+owner-only/
+owner-secrets/
+
+# ── Build artifacts & releases ───────────────────────────────────────────────
+release/
+*.zip
+*.tar.gz
+
+# ── Trash folder (AI session artifacts) ──────────────────────────────────────
+_trash/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+
+# ── macOS / Windows system files ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Deployment secrets ───────────────────────────────────────────────────────
+deploy/.env
+deploy/backups/
+
+# ── Test fixtures ─────────────────────────────────────────────────────────────
+fixtures/cert/
+
+# Server backup dir
+server/backups/

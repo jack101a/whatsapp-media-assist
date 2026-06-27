@@ -1,0 +1,22 @@
+<!-- TAB: SNAPSHOTS -->
+    <div id="panel-snapshots" class="dashboard-panel">
+      <div class="filter-bar" style="display:flex; justify-content:space-between; align-items:center;">
+        <p style="color:var(--text-muted);font-size:13px;">Snapshot database files copy both local state and offsite nodes if configured.</p>
+        <button onclick="createBackup()" class="btn primary">Take SQLite Backup</button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Snapshot Filename</th>
+              <th>Size (MB)</th>
+              <th>Timestamp</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="backups-table-body">
+            <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Loading snapshots...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>

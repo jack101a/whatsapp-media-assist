@@ -1,0 +1,35 @@
+<aside>
+    <div class="brand">
+      <h1 style="color:var(--accent);font-size: 20px;">Media Assist Admin</h1>
+    </div>
+    <nav>
+      <button onclick="switchTab('analytics')" id="nav-analytics" class="nav-btn active">
+        <span>Analytics</span>
+      </button>
+      <button onclick="switchTab('users')" id="nav-users" class="nav-btn">
+        <span>Users & Devices</span>
+      </button>
+      <button onclick="switchTab('plans')" id="nav-plans" class="nav-btn">
+        <span>Subscription Plans</span>
+      </button>
+      <button onclick="switchTab('templates')" id="nav-templates" class="nav-btn">
+        <span>Setting Templates</span>
+      </button>
+      <button onclick="switchTab('snapshots')" id="nav-snapshots" class="nav-btn">
+        <span>Database Snapshot</span>
+      </button>
+      <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn">
+        <span>System Settings</span>
+      </button>
+      <button onclick="switchTab('logs')" id="nav-logs" class="nav-btn">
+        <span>Audit Logs</span>
+      </button>
+    </nav>
+    <div class="nav-footer">
+      <div class="key-status">
+        <span id="key-dot" class="status-dot"></span>
+        <span id="key-label">Panel Locked</span>
+      </div>
+      <button onclick="lockPanel()" class="btn sm" style="width:100%;">Logout</button>
+    </div>
+  </aside>

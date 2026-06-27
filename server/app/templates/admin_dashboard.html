@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Assist — Admin Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+
+  <!-- AUTH CREDENTIALS PAGE -->
+  <div id="auth-page" class="auth-page">
+    <div class="auth-card">
+      <div style="font-size: 32px; font-weight: 800; color:var(--accent);">Media Assist</div>
+      <div>
+        <h2>Admin Authentication</h2>
+        <p style="color:var(--text-muted);font-size:13px;margin-top:4px;">Provide the X-Admin-Key secret to unlock the dashboard</p>
+      </div>
+      <div class="form-group" style="text-align:left;">
+        <label for="admin-key-input">Admin API Key</label>
+        <input type="password" id="admin-key-input" class="input" placeholder="Paste X-Admin-Key">
+      </div>
+      <button onclick="saveAdminKey()" class="btn primary" style="width:100%;">Unlock Dashboard</button>
+    </div>
+  </div>
+
+  <!-- SIDEBAR NAVIGATION -->
+  {% include "components/sidebar.html" %}
+
+  <!-- MAIN AREA -->
+  <main>
+    
+    <header class="top">
+      <div class="title-area">
+        <h2 id="page-title">System Analytics</h2>
+        <p id="page-subtitle">License metrics, revenue projections and system health status</p>
+      </div>
+      <div class="top-actions">
+        <button onclick="refreshDashboard()" class="btn sm">
+          <span>Sync Dashboard</span>
+        </button>
+      </div>
+    </header>
+
+    {% include "components/tab_analytics.html" %}
+
+    {% include "components/tab_users.html" %}
+
+    {% include "components/tab_plans.html" %}
+
+    {% include "components/tab_templates.html" %}
+
+    {% include "components/tab_snapshots.html" %}
+
+    {% include "components/tab_settings.html" %}
+
+    {% include "components/tab_logs.html" %}
+
+    </main>
+
+  <!-- MODALS -->
+
+  <!-- MODAL: MANUAL SUBSCRIPTION MODIFY -->
+  <div id="subscription-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Modify User Entitlements</h3>
+        <button onclick="closeModal('subscription-modal')" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="sub-modal-user-id">
+        <div class="form-group">
+          <label>Account Email</label>
+          <input type="text" id="sub-modal-email" class="input" disabled>
+        </div>
+        <div class="form-group">
+          <label for="sub-modal-plan">Target Plan</label>
+          <select id="sub-modal-plan" class="select" onchange="onPlanSelectChange()"></select>
+        </div>
+        <div class="input-row">
+          <div class="form-group">
+            <label for="sub-modal-currency">Currency</label>
+            <select id="sub-modal-currency" class="select">
+              <option value="INR">INR</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="sub-modal-amount">Amount (Minor Units)</label>
+            <input type="number" id="sub-modal-amount" class="input">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="sub-modal-expires">Expiration Date</label>
+          <input type="datetime-local" id="sub-modal-expires" class="input">
+        </div>
+        <div class="form-group">
+          <label for="sub-modal-status">Entitlement Status</label>
+          <select id="sub-modal-status" class="select">
+            <option value="active">Active</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="expired">Expired</option>
+            <option value="refunded">Refunded</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="removeSubscription()" class="btn danger" style="margin-right:auto;">Remove Entitlement</button>
+        <button onclick="closeModal('subscription-modal')" class="btn">Cancel</button>
+        <button onclick="saveSubscription()" class="btn primary">Save Subscription</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ACTIVE SESSIONS DEVICES -->
+  <div id="device-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Device Sessions</h3>
+        <button onclick="closeModal('device-modal')" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="device-modal-user-id">
+        <div id="device-modal-list" style="display:flex; flex-direction:column; gap:12px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="closeModal('device-modal')" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PLAN CREATE / EDIT -->
+  <div id="plan-modal" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="plan-modal-title">Configure Plan</h3>
+        <button onclick="closeModal('plan-modal')" class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="plan-modal-mode" value="create">
+        <div class="input-row">
+          <div class="form-group">
+            <label for="plan-modal-id">Plan ID (Unique)</label>
+            <input type="text" id="plan-modal-id" class="input" placeholder="e.g. pro-annual">
+          </div>
+          <div class="form-group">
+            <label for="plan-modal-name">Display Name</label>
+            <input type="text" id="plan-modal-name" class="input" placeholder="e.g. Premium Pro Plan">
+          </div>
+        </div>
+        <div class="input-row">
+          <div class="form-group">
+            <label for="plan-modal-tier">Entitlement Tier</label>
+            <select id="plan-modal-tier" class="select">
+              <option value="premium">Premium</option>
+              <option value="lite">Lite</option>
+              <option value="business">Business</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="plan-modal-duration">Duration (Days)</label>
+            <input type="number" id="plan-modal-duration" class="input" value="365">
+          </div>
+        </div>
+        <div class="input-row">
+          <div class="form-group">
+            <label for="plan-modal-price-inr">Price INR (Minor Units)</label>
+            <input type="number" id="plan-modal-price-inr" class="input" value="50000">
+          </div>
+          <div class="form-group">
+            <label for="plan-modal-price-usd">Price USD (Minor Units)</label>
+            <input type="number" id="plan-modal-price-usd" class="input" value="499">
+          </div>
+        </div>
+        
+        
+
+        <div class="form-group">
+          <label style="font-size:13px; font-weight:600; margin-bottom: 4px;">Features checklist:</label>
+          <div class="switch-container" style="margin-bottom:8px;">
+            <div class="switch-label">
+              <strong>Custom Workflows (Pipelines)</strong>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="feat-pipelines" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="switch-container" style="margin-bottom:8px;">
+            <div class="switch-label">
+              <strong>Multi-Input Processing</strong>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="feat-multi-input" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="switch-container">
+            <div class="switch-label">
+              <strong>Pinned Toolbar Buttons</strong>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="feat-pinned" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button onclick="closeModal('plan-modal')" class="btn">Cancel</button>
+        <button onclick="savePlan()" class="btn primary">Save Plan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: TEMPLATE CREATE / EDIT -->
+  <div id="template-modal" class="modal-backdrop">
+    <div class="modal" style="width: 680px;">
+      <div class="modal-header">
+        <h3 id="template-modal-title">Configure Setting Template</h3>
+        <button onclick="closeModal('template-modal')" class="close-btn">&times;</button>
+      </div>
+      
+      <div style="padding: 16px 24px 0 24px;">
+        <div class="modal-tabs">
+          <button onclick="switchModalTab('imagedefs')" id="tab-btn-imagedefs" class="modal-tab-btn active">Image Defaults</button>
+          <button onclick="switchModalTab('mergepdf')" id="tab-btn-mergepdf" class="modal-tab-btn">Merge & PDF</button>
+          <button onclick="switchModalTab('pipelines')" id="tab-btn-pipelines" class="modal-tab-btn">Workflows (JSON)</button>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding-top: 12px;">
+        <input type="hidden" id="template-modal-mode" value="create">
+        
+        <div class="input-row three">
+          <div class="form-group">
+            <label for="template-modal-id">Template ID (Unique)</label>
+            <input type="text" id="template-modal-id" class="input" placeholder="e.g. standard-pro-template">
+          </div>
+          <div class="form-group">
+            <label for="template-modal-name">Template Name</label>
+            <input type="text" id="template-modal-name" class="input" placeholder="e.g. Pro Standard Settings">
+          </div>
+          <div class="form-group">
+            <label for="template-modal-category">Category Group</label>
+            <input type="text" id="template-modal-category" class="input" placeholder="e.g. India Govt Portals">
+          </div>
+        </div>
+
+        <!-- SECTION: IMAGE DEFAULTS -->
+        <div id="modal-sec-imagedefs" class="modal-tab-content active">
+          <div class="input-row three">
+            <div class="form-group">
+              <label for="imgdef-format">Default Format</label>
+              <select id="imgdef-format" class="select">
+                <option value="jpeg">JPEG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="imgdef-maxkb">Max KB size</label>
+              <input type="number" id="imgdef-maxkb" class="input" value="180">
+            </div>
+            <div class="form-group">
+              <label for="imgdef-crop">Default Crop Ratio</label>
+              <select id="imgdef-crop" class="select">
+                <option value="free">Free Ratio</option>
+                <option value="original">Original</option>
+                <option value="1:1">1:1 Square</option>
+                <option value="16:9">16:9 widescreen</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="form-group">
+              <label for="imgdef-quality">Default Quality (0-100)</label>
+              <input type="number" id="imgdef-quality" class="input" value="90">
+            </div>
+            <div class="form-group">
+              <label for="imgdef-minquality">Minimum Quality threshold</label>
+              <input type="number" id="imgdef-minquality" class="input" value="35">
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="form-group">
+              <label for="imgdef-resizefit">Default Resize Fit</label>
+              <select id="imgdef-resizefit" class="select">
+                <option value="contain">Contain (preserve aspect)</option>
+                <option value="cover">Cover (crop to fit)</option>
+                <option value="stretch">Stretch</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="imgdef-filename">Filename Template</label>
+              <input type="text" id="imgdef-filename" class="input" value="{datetime}">
+            </div>
+          </div>
+          
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Dimension Reduction</strong></div>
+              <label class="switch">
+                <input type="checkbox" id="imgdef-allowdim" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="switch-container">
+              <div class="switch-label"><strong>Allow Upscaling</strong></div>
+              <label class="switch">
+                <input type="checkbox" id="imgdef-allowupscale">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: MERGE & PDF -->
+        <div id="modal-sec-mergepdf" class="modal-tab-content">
+          <div class="input-row three">
+            <div class="form-group">
+              <label for="merge-layout">Merge Layout</label>
+              <select id="merge-layout" class="select">
+                <option value="vertical">Vertical</option>
+                <option value="horizontal">Horizontal</option>
+                <option value="grid">Grid Layout</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="merge-format">Merge Format</label>
+              <select id="merge-format" class="select">
+                <option value="jpeg">JPEG</option>
+                <option value="png">PNG</option>
+                <option value="pdf">PDF File</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="merge-maxkb">Merge Max Size (KB)</label>
+              <input type="number" id="merge-maxkb" class="input" value="480">
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="form-group">
+              <label for="merge-quality">Merge Quality</label>
+              <input type="number" id="merge-quality" class="input" value="90">
+            </div>
+            <div class="form-group">
+              <label for="merge-gap">Gap Size (px)</label>
+              <input type="number" id="merge-gap" class="input" value="36">
+            </div>
+            <div class="form-group">
+              <label for="merge-padding">Padding Size (px)</label>
+              <input type="number" id="merge-padding" class="input" value="72">
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="form-group">
+              <label for="merge-border">Border Width (px)</label>
+              <input type="number" id="merge-border" class="input" value="3">
+            </div>
+            <div class="form-group">
+              <label for="merge-bordercolor">Border Color</label>
+              <input type="text" id="merge-bordercolor" class="input" value="#d6d9dc">
+            </div>
+            <div class="form-group">
+              <label for="merge-background">Background Color</label>
+              <input type="text" id="merge-background" class="input" value="#ffffff">
+            </div>
+          </div>
+          <div class="form-group" style="max-width: 200px;">
+            <label for="merge-gridcols">Grid Columns (Grid Layout)</label>
+            <input type="number" id="merge-gridcols" class="input" value="2">
+          </div>
+        </div>
+
+        <!-- SECTION: PIPELINES -->
+        <div id="modal-sec-pipelines" class="modal-tab-content">
+          <label for="template-modal-pipelines" style="font-size:13px; font-weight:600;">Workflows (Pipelines) JSON Array</label>
+          <textarea id="template-modal-pipelines" class="textarea code" style="min-height: 220px;"></textarea>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button onclick="closeModal('template-modal')" class="btn">Cancel</button>
+        <button onclick="saveTemplate()" class="btn primary">Save Template</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST STACK -->
+  <div id="toast-stack" class="toast-stack"></div>
+
+  <!-- SCRIPTS -->
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

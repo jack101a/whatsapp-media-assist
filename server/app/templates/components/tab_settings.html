@@ -1,0 +1,88 @@
+<!-- TAB: SYSTEM SETTINGS -->
+    <div id="panel-settings" class="dashboard-panel">
+      <div class="card">
+        <div class="card-header">
+          <h3>Cloud Backup & Bot Configurations</h3>
+        </div>
+        
+        <div class="switch-container">
+          <div class="switch-label">
+            <strong>Enable Automated Backup Scheduler</strong>
+            <span>Check every 24 hours to back up database and upload to off-site cloud storage.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="settings-auto-backup">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="input-row">
+          <div class="form-group">
+            <label for="settings-max-count">Rotation Max Backup Count</label>
+            <input type="number" id="settings-max-count" class="input" placeholder="e.g. 14">
+          </div>
+          <div class="form-group">
+            <label for="settings-max-size">Rotation Max Directory Size (MB)</label>
+            <input type="number" id="settings-max-size" class="input" placeholder="e.g. 100">
+          </div>
+        </div>
+
+        <div class="input-row">
+          <div class="form-group">
+            <label for="settings-telegram-token">Telegram Bot Token (Dumps)</label>
+            <input type="text" id="settings-telegram-token" class="input" placeholder="e.g. 123456789:ABCDefGhI...">
+          </div>
+          <div class="form-group">
+            <label for="settings-telegram-chat">Telegram Chat ID (Dumps)</label>
+            <input type="text" id="settings-telegram-chat" class="input" placeholder="e.g. -100123456789">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="settings-rclone-path">Rclone Remote Destination Path</label>
+          <input type="text" id="settings-rclone-path" class="input" placeholder="e.g. remote_drive:media-assist-backups">
+        </div>
+
+        <div class="form-group">
+          <label for="settings-rclone-file">Rclone Config File Content (rclone.conf)</label>
+          <textarea id="settings-rclone-file" class="textarea code" placeholder="[remote_drive]&#10;type = drive&#10;scope = drive.appdata&#10;..."></textarea>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; border-top: 1px solid var(--border); padding-top:16px;">
+          <button onclick="saveSystemSettings()" class="btn primary">Save System Settings</button>
+        </div>
+      </div>
+      
+      <div class="card" style="margin-top: 24px;">
+        <div class="card-header">
+          <h3>Payment Gateway (Razorpay Webhooks)</h3>
+        </div>
+        
+        <p style="color:var(--text-muted); font-size:14px; margin-bottom:16px;">
+          Copy and paste these exact values into the <strong>Razorpay Dashboard &rarr; Accounts & Settings &rarr; Webhooks &rarr; Add New Webhook</strong>.
+        </p>
+
+        <div class="input-row">
+          <div class="form-group" style="flex: 2;">
+            <label>Webhook URL (HTTPS Recommended)</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="settings-razorpay-url" class="input" readonly style="background:#f1f5f9; cursor:copy;" onclick="this.select();">
+            </div>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label>Webhook Secret</label>
+            <input type="password" id="settings-razorpay-secret" class="input" readonly style="background:#f1f5f9; cursor:copy;" onclick="this.type='text'; this.select();" onblur="this.type='password';">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:12px;">
+          <label style="font-weight:600;">Active Events Checklist</label>
+          <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:8px;">
+            <div style="background:#e0f2fe; color:#0369a1; padding:6px 12px; border-radius:16px; font-size:13px; font-weight:600; border: 1px solid #bae6fd;">&#x2714; payment_link.paid</div>
+            <div style="background:#e0f2fe; color:#0369a1; padding:6px 12px; border-radius:16px; font-size:13px; font-weight:600; border: 1px solid #bae6fd;">&#x2714; payment.refunded</div>
+            <div style="background:#e0f2fe; color:#0369a1; padding:6px 12px; border-radius:16px; font-size:13px; font-weight:600; border: 1px solid #bae6fd;">&#x2714; refund.processed</div>
+          </div>
+        </div>
+      </div>
+      
+    </div>
