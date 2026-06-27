@@ -102,15 +102,12 @@ def list_plans(db: Session = Depends(get_db)) -> List[PlanResponse]:
     for p in plans:
         try:
             features = json.loads(p.features_json)
-            templates = json.loads(p.templates_json)
         except Exception:
             features = []
-            templates = []
         output.append(PlanResponse(
             id=p.id, name=p.name, tier=p.tier,
             price_inr_minor=p.price_inr_minor, price_usd_minor=p.price_usd_minor,
-            duration_days=p.duration_days, features=features, templates=templates,
-            template_id=p.template_id,
+            duration_days=p.duration_days, features=features,
             created_at=p.created_at, updated_at=p.updated_at
         ))
     return output

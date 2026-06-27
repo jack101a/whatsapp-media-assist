@@ -145,10 +145,6 @@ def test_user_subscription_grant_and_templates_sync(monkeypatch):
     db.expire_all()
     user_updated = db.get(User, user.id)
     assert user_updated.settings_json is None  # Syncing is handled via client now
-    settings = json.loads(user_updated.settings_json)
-    assert 'profiles' in settings
-    assert len(settings['profiles']) == 1
-    assert settings['profiles'][0]['name'] == 'A4 Scan Template'
     db.close()
 
 
@@ -322,26 +318,17 @@ def test_templates_crud_and_modular_plans_sync(monkeypatch):
     tpl_payload = {
         'id': 'tpl-pro-standard',
         'name': 'Pro Standard Settings Template',
-        'image_defaults': {
-            'defaultFormat': 'png',
-            'defaultQuality': 85
-        },
-        'merge_pdf': {
-            'mergeDefaultLayout': 'horizontal'
-        },
-        'pipelines': [
-            {
-                'name': 'WhatsApp AutoScale',
-                'pinned': True,
-                'inputCount': 1,
-                'steps': []
-            }
-        ]
+        'category': 'pipelines',
+        'payload': {
+            'name': 'WhatsApp AutoScale',
+            'pinned': True,
+            'inputCount': 1,
+            'steps': []
+        }
     }
     response = client.post('/v1/admin/dashboard/templates', json=tpl_payload, headers=headers)
     assert response.status_code == 200
     assert response.json()['name'] == 'Pro Standard Settings Template'
-    assert response.json()['image_defaults']['defaultFormat'] == 'png'
 
     # 2. List templates
     response = client.get('/v1/admin/dashboard/templates', headers=headers)
@@ -356,9 +343,7 @@ def test_templates_crud_and_modular_plans_sync(monkeypatch):
         'price_inr_minor': 100,
         'price_usd_minor': 1,
         'duration_days': 30,
-        'features': ['pipelines'],
-        'templates': [],
-        'template_id': 'tpl-pro-standard'
+        'features': ['pipelines']
     }
     response = client.post('/v1/admin/dashboard/plans', json=plan_payload, headers=headers)
     assert response.status_code == 200
@@ -390,11 +375,7 @@ def test_templates_crud_and_modular_plans_sync(monkeypatch):
     user = db.scalar(select(User).where(User.email == email))
     assert user.settings_json is not None
     user_settings = json.loads(user.settings_json)
-    assert user_settings['defaultFormat'] == 'png'
-    assert user_settings['defaultQuality'] == 85
-    assert user_settings['mergeDefaultLayout'] == 'horizontal'
-    assert len(user_settings['profiles']) == 1
-    assert user_settings['profiles'][0]['name'] == 'WhatsApp AutoScale'
+    assert user_settings['profiles'][0]['name'] == 'Pro Standard Settings Template'
     db.close()
 
     # 5. Clean up
