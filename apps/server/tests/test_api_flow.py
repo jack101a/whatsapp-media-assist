@@ -41,13 +41,13 @@ def test_login_checkout_activation_and_signout(monkeypatch):
     assert response.status_code == 200, response.text
     checkout = response.json()
     assert checkout['amount_minor'] == 50000
-    assert checkout['checkout_url'].startswith('http://testserver/dev/pay/')
+    assert checkout['checkout_url'].startswith('http://testserver/checkout/')
 
     webhook = {
-        'event': 'payment_link.paid',
+        'event': 'order.paid',
         'payload': {
-            'payment_link': {'entity': {'id': f"plink_dev_{checkout['reference_id']}", 'reference_id': checkout['reference_id']}},
-            'payment': {'entity': {'id': 'pay_fixture_001', 'amount': 50000, 'currency': 'INR', 'status': 'captured', 'captured': True}},
+            'order': {'entity': {'id': f"order_dev_{checkout['reference_id']}", 'amount': 50000, 'currency': 'INR', 'status': 'paid'}},
+            'payment': {'entity': {'id': 'pay_fixture_001', 'order_id': f"order_dev_{checkout['reference_id']}", 'amount': 50000, 'currency': 'INR', 'status': 'captured', 'captured': True}},
         },
     }
     raw = json.dumps(webhook, separators=(',', ':')).encode()
