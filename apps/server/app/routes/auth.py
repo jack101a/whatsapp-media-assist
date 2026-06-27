@@ -154,6 +154,9 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db), settings: Se
     access, raw_refresh, entitlement = issue_session(db, settings, token_signer, user=user, device=device)
     stored.replaced_by_hash = secure_token_hash(raw_refresh)
     device.last_seen_at = now
+    sub = active_subscription(db, user.id)
+    if sub and sub.plan:
+        sync_plan_templates_to_user(db, user, sub.plan)
     db.commit()
     return TokenResponse(access_token=access, refresh_token=raw_refresh, entitlement_token=entitlement, email=user.email)
 
