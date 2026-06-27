@@ -1,0 +1,24 @@
+<!-- TAB: USERS -->
+    <div id="panel-users" class="dashboard-panel">
+      <div class="filter-bar">
+        <input type="text" id="user-search" class="input" style="max-width: 360px;" placeholder="Search user email..." oninput="debounceUserSearch()">
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Email Address</th>
+              <th>Status</th>
+              <th>Current Plan</th>
+              <th>Expires At</th>
+              <th>Devices</th>
+              <th>Settings Version</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-body">
+            <tr><td colspan="7" style="text-align:center;color:var(--text-muted);">Loading users...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
