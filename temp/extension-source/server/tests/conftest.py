@@ -27,5 +27,6 @@ os.environ.update({
     'RAZORPAY_KEY_SECRET': '',
     'RAZORPAY_WEBHOOK_SECRET': 'webhook-secret',
     'BREVO_API_KEY': '',
-    'BREVO_SENDER_EMAIL': 'no-reply@example.com',
+    'BREVO_SENDER_EMAIL': 'no-reply.mediaassit@example.com',
+    'BREVO_REPLY_TO_EMAIL': 'support.mediaassit@example.com',
 })

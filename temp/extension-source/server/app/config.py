@@ -45,8 +45,10 @@ class Settings(BaseSettings):
     razorpay_api_url: str = 'https://api.razorpay.com/v1'
 
     brevo_api_key: str = ''
-    brevo_sender_email: EmailStr = 'no-reply@002529.xyz'
+    brevo_sender_email: EmailStr = 'no-reply.mediaassit@002529.xyz'
     brevo_sender_name: str = 'Media Assist'
+    brevo_reply_to_email: EmailStr = 'support.mediaassit@002529.xyz'
+    brevo_reply_to_name: str = 'Media Assist Support'
     brevo_sandbox: bool = False
 
     allowed_origins: str = ''

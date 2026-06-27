@@ -22,6 +22,7 @@ async def send_otp(settings: Settings, *, email: str, code: str) -> None:
 
     payload = {
         'sender': {'name': settings.brevo_sender_name, 'email': str(settings.brevo_sender_email)},
+        'replyTo': {'name': settings.brevo_reply_to_name, 'email': str(settings.brevo_reply_to_email)},
         'to': [{'email': email}],
         'subject': f'{code} is your Media Assist code',
         'htmlContent': (
