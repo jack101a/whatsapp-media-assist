@@ -21,8 +21,25 @@ interface ToastItem { id: string; message: string; error?: boolean }
 interface TransformState { rotation: Rotation; crop?: NormalizedCrop; resize?: ResizeSettings }
 interface ProfileSession { profile: MediaProfile; items: MergeItem[] }
 interface PendingPipeline { profile: MediaProfile; source: Blob }
+interface ServerTemplate { id: string; name: string; category: string; payload: Partial<AppSettings> }
 
 const EMPTY_TRANSFORM: TransformState = { rotation: 0 };
+const IMAGE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
+  'defaultFilenameTemplate',
+  'defaultFormat',
+  'defaultMaxKB',
+  'defaultMinKB',
+  'defaultWidth',
+  'defaultHeight',
+  'defaultQuality',
+  'minimumQuality',
+  'allowDimensionReduction',
+  'allowUpscale',
+  'defaultResizeFit',
+  'defaultCropRatio',
+  'removeSpacesByDefault',
+  'removeSpecialCharactersByDefault',
+];
 
 function clampQualityPercent(value: number | undefined, fallback: number): number {
   const next = Number(value);
@@ -32,6 +49,13 @@ function clampQualityPercent(value: number | undefined, fallback: number): numbe
 
 function clampToolbarOffset(value: number): number {
   return Math.max(-1200, Math.min(1200, Math.round(value)));
+}
+
+function pickSettingsPatch(payload: Partial<AppSettings>, keys: (keyof AppSettings)[]): Partial<AppSettings> {
+  return keys.reduce<Partial<AppSettings>>((patch, key) => {
+    if (payload[key] !== undefined) (patch as Record<string, unknown>)[key] = payload[key];
+    return patch;
+  }, {});
 }
 
 function useSettingsState() {
@@ -522,6 +546,7 @@ export function ContentApp() {
   const [profileSessions, setProfileSessions] = useState<Record<string, ProfileSession>>({});
   const [pendingPipeline, setPendingPipeline] = useState<PendingPipeline | null>(null);
   const [toolbarPreviewOffset, setToolbarPreviewOffset] = useState<{ x: number; y: number } | null>(null);
+  const [serverTemplates, setServerTemplates] = useState<ServerTemplate[]>([]);
   const previousKey = useRef('');
   const mediaRef = useRef<ActiveMedia | null>(null);
   const missingSince = useRef<number | null>(null);
@@ -664,7 +689,26 @@ export function ContentApp() {
     };
   }, [settings?.enabled]);
 
-  const pinnedProfiles = useMemo(() => settings?.profiles.filter((profile) => profile.pinned).slice(0, 4) ?? [], [settings]);
+  useEffect(() => {
+    let active = true;
+    if (!premium) {
+      setServerTemplates([]);
+      return () => { active = false; };
+    }
+    void browser.runtime.sendMessage({ type: 'billing:get-templates' })
+      .then((response: { ok: boolean; data?: ServerTemplate[] }) => {
+        if (active && response.ok) setServerTemplates(response.data ?? []);
+      })
+      .catch(() => {
+        if (active) setServerTemplates([]);
+      });
+    return () => { active = false; };
+  }, [premium]);
+
+  const pinnedProfiles = useMemo(() => premium ? settings?.profiles.filter((profile) => profile.pinned) ?? [] : [], [premium, settings]);
+  const visiblePinnedProfiles = pinnedProfiles.slice(0, 5);
+  const overflowPinnedProfiles = pinnedProfiles.slice(5);
+  const imageTemplates = useMemo(() => premium ? serverTemplates.filter((template) => template.category === 'image_defaults') : [], [premium, serverTemplates]);
 
   const rotate = (direction: -1 | 1) => {
     setTransform((current) => ({ ...current, rotation: ((current.rotation + (direction === 1 ? 90 : 270)) % 360) as Rotation, crop: undefined }));
@@ -707,7 +751,7 @@ export function ContentApp() {
     window.addEventListener('pointerup', up);
   }, [settings, toolbarPreviewOffset]);
 
-  const downloadCurrent = async (maxKB?: number, formatOverride?: ImageFormat, qualityOverride?: number) => {
+  const downloadCurrent = async (maxKB?: number, formatOverride?: ImageFormat, qualityOverride?: number, transformOverride: TransformState = transform) => {
     if (!media || !settings) return;
     setBusy(true);
     try {
@@ -721,11 +765,11 @@ export function ContentApp() {
       }
       const format = formatOverride ?? settings.defaultFormat;
       const result = await processImage(source, {
-        rotation: transform.rotation,
+        rotation: transformOverride.rotation,
         flipX: false,
         flipY: false,
-        crop: transform.crop,
-        resize: transform.resize ?? (settings.defaultWidth || settings.defaultHeight ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined),
+        crop: transformOverride.crop,
+        resize: transformOverride.resize ?? (settings.defaultWidth || settings.defaultHeight ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined),
         format,
         compression: {
           minBytes: kbToBytes(settings.defaultMinKB),
@@ -738,6 +782,7 @@ export function ContentApp() {
       });
       const filename = withExtension(renderFilename(settings.defaultFilenameTemplate, { width: result.width, height: result.height, format }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), format);
       await downloadBlob(result.blob, filename);
+      if (!premium) setTransform(EMPTY_TRANSFORM);
       toast(`Downloaded ${filename} • ${formatBytes(result.blob.size)}`);
       setQuickPanel(null);
     } catch (error) {
@@ -917,6 +962,23 @@ export function ContentApp() {
     }
   };
 
+  const downloadWithDefaultResize = () => {
+    if (!settings) return;
+    const resize = settings.defaultWidth || settings.defaultHeight
+      ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit }
+      : undefined;
+    void downloadCurrent(undefined, undefined, undefined, { ...transform, resize });
+  };
+
+  const applyImageTemplate = async (templateId: string) => {
+    if (!settings || !templateId) return;
+    const template = imageTemplates.find((item) => item.id === templateId);
+    if (!template) return;
+    const next = { ...settings, ...pickSettingsPatch(template.payload, IMAGE_TEMPLATE_KEYS) };
+    await saveSettings(next as AppSettings);
+    toast(`${template.name} preset applied.`);
+  };
+
   useEffect(() => () => terminateProcessor(), []);
 
   if (!settings || !settings.enabled || !media) return null;
@@ -937,23 +999,25 @@ export function ContentApp() {
     <div className={`ma-toolbar${settings.showToolbarLabels ? '' : ' icons-only'}`} style={{ top: toolbarTop, left: toolbarLeft, maxWidth: toolbarMaxWidth }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <button className={`ma-toolbar-control${settings.toolbarLocked ? ' disabled' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar to move' : 'Drag toolbar'} disabled={settings.toolbarLocked} onPointerDown={beginToolbarDrag}><Icon name="more" size={15} /></button>
       <button className={`ma-toolbar-control${settings.toolbarLocked ? ' locked' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar' : 'Lock toolbar'} onClick={() => updateToolbarSettings({ toolbarLocked: !settings.toolbarLocked })}><Icon name="lock" size={15} /></button>
-      {media.kind === 'image' && premium && pinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{profile.name}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}
+      {media.kind === 'image' && premium && visiblePinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{profile.name}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}
+      {media.kind === 'image' && premium && overflowPinnedProfiles.length > 0 && <select className="ma-profile-select" aria-label="More pipelines" disabled={busy} value="" onChange={(event) => { const profile = overflowPinnedProfiles.find((item) => item.id === event.target.value); event.currentTarget.value = ''; if (profile) void executeProfile(profile); }}><option value="">More</option>{overflowPinnedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}
+      {media.kind === 'image' && imageTemplates.length > 0 && <select className="ma-profile-select" aria-label="Image presets" value="" onChange={(event) => void applyImageTemplate(event.target.value)}><option value="">Presets</option>{imageTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>}
       {media.kind === 'image' && <button className="ma-tool-btn" title="Crop" onClick={() => { setCropMode(true); setQuickPanel(null); }}><Icon name="crop" /><span>Crop</span></button>}
-      {media.kind === 'image' && <button className="ma-tool-btn" title="Resize" onClick={() => setQuickPanel((current) => current === 'resize' ? null : 'resize')}><Icon name="resize" /><span>Resize</span></button>}
+      {media.kind === 'image' && <button className="ma-tool-btn" title={premium ? 'Resize' : 'Resize with saved defaults and download'} disabled={busy} onClick={() => premium ? setQuickPanel((current) => current === 'resize' ? null : 'resize') : downloadWithDefaultResize()}><Icon name="resize" /><span>Resize</span></button>}
       <button className="ma-tool-btn" title={media.kind === 'pdf' ? 'Compress PDF' : 'Compress and download'} onClick={() => setQuickPanel((current) => current === (media.kind === 'pdf' ? 'pdf-compress' : 'compress') ? null : (media.kind === 'pdf' ? 'pdf-compress' : 'compress'))}><Icon name="compress" /><span>{media.kind === 'pdf' ? 'Compress PDF' : 'Compress'}</span></button>
-      <div className="ma-button-group">
+      {premium && <div className="ma-button-group">
         <button className="ma-tool-btn merge" title="Add to merge" disabled={busy} onClick={() => void addCurrentToMerge()}><Icon name="plus" /><span>Add to merge</span>{mergeItems.length > 0 && <b className="ma-count">{mergeItems.length}</b>}</button>
         {mergeItems.length > 0 && !mergeOpen && <button className="ma-tool-btn stack" title="Open merge stack" onClick={() => setMergeOpen(true)}><Icon name="merge" /><span>Stack</span><b className="ma-count">{mergeItems.length}</b></button>}
-      </div>
+      </div>}
       <button className="ma-tool-btn" title="Download with saved defaults" disabled={busy} onClick={() => void downloadCurrent()}><Icon name="download" /><span>Download</span></button>
     </div>
 
     {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: Math.max(82, media.rect.left + 12), top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={22} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: Math.min(innerWidth - 52, media.rect.right - 50), top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={22} /><span>Rotate right</span></button></>}
 
-    {quickPanel === 'resize' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} onApply={(resize) => setTransform((current) => ({ ...current, resize }))} onClose={() => setQuickPanel(null)} /></div>}
+    {quickPanel === 'resize' && media.kind === 'image' && premium && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} onApply={(resize) => setTransform((current) => ({ ...current, resize }))} onClose={() => setQuickPanel(null)} /></div>}
     {quickPanel === 'compress' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality)} onClose={() => setQuickPanel(null)} /></div>}
     {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality)} onClose={() => setQuickPanel(null)} /></div>}
-    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} initial={transform.crop} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { setTransform((current) => ({ ...current, crop })); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); }} />}
+    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} initial={transform.crop} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else if (!premium) void downloadCurrent(undefined, undefined, undefined, nextTransform); }} />}
     {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
     <div className="ma-toast-stack">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
   </div>;

@@ -65,7 +65,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultQuality: 90,
   minimumQuality: 35,
   allowDimensionReduction: true,
-  allowUpscale: false,
+  allowUpscale: true,
   defaultResizeFit: 'contain',
   defaultCropRatio: 'free',
   removeSpacesByDefault: false,
@@ -122,7 +122,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
         }
         const steps: import('../types/profile').PipelineStep[] = [];
         if (profile.cropRatio) steps.push({ id: crypto.randomUUID(), type: 'crop', mode: 'preset', ratio: profile.cropRatio });
-        if (profile.width || profile.height) steps.push({ id: crypto.randomUUID(), type: 'resize', width: profile.width, height: profile.height, fit: 'contain', allowUpscale: false });
+        if (profile.width || profile.height) steps.push({ id: crypto.randomUUID(), type: 'resize', width: profile.width, height: profile.height, fit: 'contain', allowUpscale: true });
         steps.push({ id: crypto.randomUUID(), type: 'format', format: profile.format ?? 'jpeg' });
         if (profile.minKB || profile.maxKB) steps.push({ id: crypto.randomUUID(), type: 'compress', minKB: profile.minKB, maxKB: profile.maxKB });
         steps.push({ id: crypto.randomUUID(), type: 'filename', preset: 'advanced', template: profile.filenameTemplate ?? '{datetime}', removeSpaces: Boolean(profile.removeSpaces), removeSpecialCharacters: profile.removeSpecialCharacters !== false });

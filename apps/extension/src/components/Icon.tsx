@@ -8,7 +8,7 @@ const paths: Record<IconName, React.ReactNode> = {
   resize: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><path d="m3 8 6-6M15 2l6 6M3 16l6 6M15 22l6-6"/></>,
   compress: <><path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5"/><path d="m8 8-5-5M16 8l5-5M8 16l-5 5M16 16l5 5"/></>,
   merge: <><rect x="3" y="4" width="8" height="8" rx="1"/><rect x="13" y="12" width="8" height="8" rx="1"/><path d="M7 12v4a2 2 0 0 0 2 2h4M17 12V8a2 2 0 0 0-2-2h-4"/></>,
-  more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
+  more: <><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></>,
   'rotate-left': <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></>,
   'rotate-right': <><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></>,
   close: <><path d="m6 6 12 12M18 6 6 18"/></>,

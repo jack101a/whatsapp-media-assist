@@ -3,24 +3,25 @@ export const CONTENT_STYLES = `
 *, *::before, *::after { box-sizing: border-box; }
 .ma-root { position: fixed; inset: 0; z-index: 2147483600; pointer-events: none; font-family: Inter, Arial, Helvetica, sans-serif; color: #e9edef; font-size: 13px; }
 button, input, select { font: inherit; }
-.ma-toolbar { position: fixed; height: 31px; padding: 3px; display: flex; align-items: center; gap: 5px; overflow-x: auto; overflow-y: hidden; border: 1px solid rgba(255,255,255,.09); border-radius: 7px; background: rgba(17,27,33,.9); box-shadow: 0 1px 5px rgba(0,0,0,.2); pointer-events: auto; scrollbar-width: none; contain: layout paint style; }
+.ma-toolbar { position: fixed; height: 31px; padding: 3px; display: flex; align-items: center; gap: 7px; overflow-x: auto; overflow-y: hidden; border: 1px solid rgba(255,255,255,.055); border-radius: 7px; background: rgba(17,27,33,.22); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); pointer-events: auto; scrollbar-width: none; contain: layout paint style; }
 .ma-toolbar::-webkit-scrollbar { display: none; }
-.ma-tool-btn, .ma-profile-btn, .ma-toolbar-control { position: relative; height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; border: 1px solid rgba(255,255,255,.08); border-radius: 7px; color: #d9e1e4; background: rgba(255,255,255,.035); cursor: pointer; }
+.ma-tool-btn, .ma-profile-btn, .ma-toolbar-control, .ma-profile-select { position: relative; height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; border: 1px solid rgba(255,255,255,.11); border-radius: 7px; color: #edf4f4; background: rgba(17,27,33,.34); cursor: pointer; }
 .ma-tool-btn { min-width: 24px; padding: 0 6px; }
 .ma-tool-btn > span { font-size: 9.5px; font-weight: 650; white-space: nowrap; }
-.ma-tool-btn:hover, .ma-profile-btn:hover, .ma-toolbar-control:hover { color: white; background: rgba(255,255,255,.09); }
-.ma-tool-btn:disabled, .ma-profile-btn:disabled, .ma-toolbar-control:disabled { opacity: .45; cursor: wait; }
+.ma-tool-btn:hover, .ma-profile-btn:hover, .ma-toolbar-control:hover, .ma-profile-select:hover { color: white; background: rgba(17,27,33,.52); }
+.ma-tool-btn:disabled, .ma-profile-btn:disabled, .ma-toolbar-control:disabled, .ma-profile-select:disabled { opacity: .45; cursor: wait; }
 .ma-toolbar.icons-only .ma-tool-btn { width: 24px; padding: 0; }
 .ma-toolbar.icons-only .ma-tool-btn > span { display: none; }
-.ma-profile-btn { max-width: 88px; padding: 0 6px; border: 1px solid rgba(0,168,132,.35); background: rgba(0,168,132,.11); color: #e9fff9; }
+.ma-profile-btn { width: 78px; max-width: 78px; padding: 0 6px; border: 1px solid rgba(0,168,132,.38); background: rgba(0,168,132,.18); color: #e9fff9; }
+.ma-profile-select { width: 82px; padding: 0 6px; color: #e9fff9; border-color: rgba(0,168,132,.32); background: rgba(17,27,33,.46); font-size: 9.5px; font-weight: 700; outline: none; }
 .ma-toolbar-control { width: 24px; padding: 0; cursor: grab; }
 .ma-toolbar-control.locked { border-color: rgba(0,168,132,.42); color: #e9fff9; background: rgba(0,168,132,.16); cursor: pointer; }
 .ma-toolbar-control.disabled { cursor: not-allowed; }
-.ma-button-group { height: 25px; padding: 1px; display: inline-flex; align-items: center; gap: 2px; flex: none; border: 1px solid rgba(0,168,132,.25); border-radius: 8px; background: rgba(0,168,132,.08); }
+.ma-button-group { height: 25px; padding: 1px; display: inline-flex; align-items: center; gap: 3px; flex: none; border: 1px solid rgba(0,168,132,.25); border-radius: 8px; background: rgba(0,168,132,.12); }
 .ma-button-group .ma-tool-btn { height: 21px; border-color: transparent; background: transparent; }
 .ma-button-group .ma-tool-btn:hover { background: rgba(0,168,132,.22); }
 .ma-toolbar.icons-only .ma-button-group .ma-tool-btn { width: 24px; padding: 0; }
-.ma-profile-btn span { max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; font-weight: 700; }
+.ma-profile-btn span { max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; font-weight: 700; }
 .ma-profile-btn b { min-width: 23px; padding: 2px 4px; border-radius: 999px; background: rgba(255,255,255,.1); font-size: 9px; }
 .ma-count { min-width: 17px; height: 17px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #00a884; color: white; font-size: 9px; font-weight: 800; }
 .ma-toolbar.icons-only .ma-count { position: absolute; right: -2px; top: -3px; }

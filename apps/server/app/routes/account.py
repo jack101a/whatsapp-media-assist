@@ -103,7 +103,10 @@ def remove_device(device_id: str, auth: AuthContext = Depends(require_auth), db:
 
 @router.get('/templates')
 def get_global_templates(auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db)) -> list[dict]:
-    """Returns all globally seeded templates. Extension uses this to populate preset libraries."""
+    """Returns globally seeded templates for active Pro users."""
+    subscription = active_subscription(db, auth.user.id)
+    if not subscription:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Pro is required to sync preset templates')
     from sqlalchemy import select as sa_select
     templates = db.scalars(sa_select(Template).order_by(Template.category, Template.name)).all()
     result = []

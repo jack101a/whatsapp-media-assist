@@ -232,8 +232,11 @@ async function handle(request: BillingRequest): Promise<unknown> {
       await refreshSession();
       await uploadSettings().catch(() => undefined);
       return getStatus();
-    case 'billing:get-templates':
+    case 'billing:get-templates': {
+      const status = await getStatus();
+      if (!status.premium) throw new ApiError(403, status.reason || 'Pro is required to sync preset templates');
       return withAccessToken((token) => api<{id: string; name: string; category: string; payload: Record<string, unknown>}[]>('/v1/templates', {}, token));
+    }
     case 'billing:verify-online':
       return verifyPremiumOnline();
     case 'billing:get-account':
@@ -257,6 +260,8 @@ async function handle(request: BillingRequest): Promise<unknown> {
         }
       }
       await clearBillingSession();
+      const settings = await getSettings();
+      await saveSettings({ ...settings, profiles: [] });
       return getStatus();
     }
   }

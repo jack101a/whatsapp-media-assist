@@ -532,33 +532,130 @@ let activeTab = 'analytics';
       } catch (err) {}
     }
 
+    const templateTabByCategory = {
+      image_defaults: 'imagedefs',
+      merge_pdf: 'mergepdf',
+      pipelines: 'pipelines'
+    };
+    const templateCategoryByTab = {
+      imagedefs: 'image_defaults',
+      mergepdf: 'merge_pdf',
+      pipelines: 'pipelines'
+    };
+
+    function getNumberValue(id, fallback = undefined) {
+      const value = document.getElementById(id).value;
+      if (value === "") return fallback;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : fallback;
+    }
+
+    function setNumberValue(id, value, fallback = "") {
+      document.getElementById(id).value = value ?? fallback;
+    }
+
     function switchModalTab(tabId) {
-      document.querySelectorAll(".modal-tab-btn").forEach(btn => btn.classList.remove("active"));
-      document.querySelectorAll(".modal-tab-content").forEach(c => c.classList.remove("active"));
-      
+      document.querySelectorAll("#template-modal .modal-tab-btn").forEach(btn => btn.classList.remove("active"));
+      document.querySelectorAll("#template-modal .modal-tab-content").forEach(c => c.classList.remove("active"));
+
       document.getElementById(`tab-btn-${tabId}`).classList.add("active");
       document.getElementById(`modal-sec-${tabId}`).classList.add("active");
-      
+
       currentModalTab = tabId;
+      document.getElementById("template-modal-category").value = templateCategoryByTab[tabId] || currentTemplateCatTab;
+    }
+
+    function fillTemplateForm(category, payload = {}) {
+      document.getElementById("imgdef-format").value = payload.defaultFormat || "jpeg";
+      setNumberValue("imgdef-maxkb", payload.defaultMaxKB, 180);
+      document.getElementById("imgdef-crop").value = payload.defaultCropRatio || "free";
+      setNumberValue("imgdef-quality", payload.defaultQuality, 90);
+      setNumberValue("imgdef-minquality", payload.minimumQuality, 35);
+      document.getElementById("imgdef-resizefit").value = payload.defaultResizeFit || "contain";
+      document.getElementById("imgdef-filename").value = payload.defaultFilenameTemplate || "{datetime}";
+      document.getElementById("imgdef-allowdim").checked = payload.allowDimensionReduction !== false;
+      document.getElementById("imgdef-allowupscale").checked = payload.allowUpscale !== false;
+
+      document.getElementById("merge-layout").value = payload.mergeDefaultLayout || "vertical";
+      document.getElementById("merge-format").value = payload.mergeDefaultFormat || "jpeg";
+      setNumberValue("merge-maxkb", payload.mergeDefaultMaxKB, 480);
+      setNumberValue("merge-quality", payload.mergeDefaultQuality, 90);
+      setNumberValue("merge-gap", payload.mergeDefaultGap, 36);
+      setNumberValue("merge-padding", payload.mergeDefaultPadding, 72);
+      setNumberValue("merge-border", payload.mergeDefaultBorderWidth, 3);
+      document.getElementById("merge-bordercolor").value = payload.mergeDefaultBorderColor || "#d6d9dc";
+      document.getElementById("merge-background").value = payload.mergeDefaultBackground || "#ffffff";
+      setNumberValue("merge-gridcols", payload.mergeDefaultGridColumns, 2);
+
+      document.getElementById("template-modal-pipelines").value = JSON.stringify(payload.steps ? payload : {
+        inputCount: 1,
+        pinned: true,
+        mergeLayout: "vertical",
+        background: "#ffffff",
+        steps: [
+          { type: "format", format: "jpeg" },
+          { type: "compress", maxKB: 180 },
+          { type: "download", automatic: true }
+        ]
+      }, null, 2);
+
+      switchModalTab(templateTabByCategory[category] || "imagedefs");
+    }
+
+    function readTemplatePayload(category) {
+      if (category === "image_defaults") {
+        return {
+          defaultFilenameTemplate: document.getElementById("imgdef-filename").value.trim() || "{datetime}",
+          defaultFormat: document.getElementById("imgdef-format").value,
+          defaultMaxKB: getNumberValue("imgdef-maxkb"),
+          defaultQuality: getNumberValue("imgdef-quality", 90),
+          minimumQuality: getNumberValue("imgdef-minquality", 35),
+          allowDimensionReduction: document.getElementById("imgdef-allowdim").checked,
+          allowUpscale: document.getElementById("imgdef-allowupscale").checked,
+          defaultResizeFit: document.getElementById("imgdef-resizefit").value,
+          defaultCropRatio: document.getElementById("imgdef-crop").value,
+          removeSpacesByDefault: false,
+          removeSpecialCharactersByDefault: true
+        };
+      }
+      if (category === "merge_pdf") {
+        return {
+          mergeDefaultLayout: document.getElementById("merge-layout").value,
+          mergeDefaultFormat: document.getElementById("merge-format").value,
+          mergeDefaultMaxKB: getNumberValue("merge-maxkb"),
+          mergeDefaultQuality: getNumberValue("merge-quality", 90),
+          mergeDefaultGap: getNumberValue("merge-gap", 36),
+          mergeDefaultPadding: getNumberValue("merge-padding", 72),
+          mergeDefaultBorderWidth: getNumberValue("merge-border", 3),
+          mergeDefaultBorderColor: document.getElementById("merge-bordercolor").value.trim() || "#d6d9dc",
+          mergeDefaultBackground: document.getElementById("merge-background").value.trim() || "#ffffff",
+          mergeDefaultGridColumns: getNumberValue("merge-gridcols", 2)
+        };
+      }
+      try {
+        const parsed = JSON.parse(document.getElementById("template-modal-pipelines").value || "{}");
+        return Array.isArray(parsed) ? { steps: parsed } : parsed;
+      } catch (e) {
+        showToast("Invalid JSON syntax in pipeline payload.", "error");
+        throw e;
+      }
     }
 
     function openCreateTemplateModal() {
+      const category = currentTemplateCatTab;
       document.getElementById("template-modal-title").textContent = "Create Preset Template";
       document.getElementById("template-modal-mode").value = "create";
       document.getElementById("template-modal-id").disabled = false;
-
-      // Clear fields
       document.getElementById("template-modal-id").value = "";
       document.getElementById("template-modal-name").value = "";
-      document.getElementById("template-modal-category").value = currentTemplateCatTab;
-      document.getElementById("template-modal-payload").value = "{\n  \n}";
-
+      document.getElementById("template-modal-category").value = category;
+      fillTemplateForm(category, {});
       openModal("template-modal");
     }
 
     function openEditTemplateModal(templateId) {
       const t = cachedTemplates.find(tpl => tpl.id === templateId);
-      if (!t) return;
+      if (!t) return showToast("Template not found. Refresh and try again.", "error");
 
       document.getElementById("template-modal-title").textContent = "Edit Preset Template";
       document.getElementById("template-modal-mode").value = "edit";
@@ -566,9 +663,7 @@ let activeTab = 'analytics';
       document.getElementById("template-modal-id").disabled = true;
       document.getElementById("template-modal-name").value = t.name;
       document.getElementById("template-modal-category").value = t.category;
-
-      document.getElementById("template-modal-payload").value = JSON.stringify(t.payload || {}, null, 2);
-
+      fillTemplateForm(t.category, t.payload || {});
       openModal("template-modal");
     }
 
@@ -582,19 +677,19 @@ let activeTab = 'analytics';
         showToast("ID and Template Name are required.", "error");
         return;
       }
-
-      let payload = {};
-      try {
-        payload = JSON.parse(document.getElementById("template-modal-payload").value);
-      } catch (e) {
-        showToast("Invalid JSON syntax in payload box.", "error");
+      if (!["image_defaults", "merge_pdf", "pipelines"].includes(category)) {
+        showToast("Choose a valid template category tab.", "error");
         return;
       }
 
-      const requestPayload = {
-        id, name, category,
-        payload
-      };
+      let payload;
+      try {
+        payload = readTemplatePayload(category);
+      } catch {
+        return;
+      }
+
+      const requestPayload = { id, name, category, payload };
 
       try {
         if (mode === 'create') {
@@ -605,7 +700,7 @@ let activeTab = 'analytics';
           showToast(`Template saved`, "success");
         }
         closeModal("template-modal");
-        loadTemplates();
+        await loadTemplates();
       } catch (err) {}
     }
 
