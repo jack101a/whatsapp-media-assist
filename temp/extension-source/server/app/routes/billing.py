@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..deps import AuthContext, require_auth
-from ..models import Checkout, PaymentEvent, Subscription, utcnow
+from ..models import Checkout, PaymentEvent, Plan, Subscription, utcnow
 from ..razorpay_client import RazorpayClient, RazorpayError
 from ..schemas import CheckoutRequest, CheckoutResponse, ProductPrice, ProductResponse
 from ..services import active_subscription
@@ -22,24 +22,50 @@ router = APIRouter(tags=['billing'])
 
 
 @router.get('/v1/billing/product', response_model=ProductResponse)
-def product(settings: Settings = Depends(get_settings)) -> ProductResponse:
+def product(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> ProductResponse:
+    plan = db.get(Plan, 'pro')
+    duration_days = plan.duration_days if plan else settings.annual_license_days
+    price_inr_minor = plan.price_inr_minor if plan else settings.price_inr_minor
+    price_usd_minor = plan.price_usd_minor if plan else settings.price_usd_minor
+
     prices: list[ProductPrice] = []
     if settings.enable_inr_checkout:
-        prices.append(ProductPrice(currency='INR', amount_minor=settings.price_inr_minor, label=f'₹{settings.price_inr_minor / 100:g} / {settings.annual_license_days} days'))
+        prices.append(ProductPrice(currency='INR', amount_minor=price_inr_minor, label=f'INR {price_inr_minor / 100:g} / {duration_days} days'))
     if settings.enable_usd_checkout:
-        prices.append(ProductPrice(currency='USD', amount_minor=settings.price_usd_minor, label=f'${settings.price_usd_minor / 100:.2f} / {settings.annual_license_days} days'))
-    return ProductResponse(duration_days=settings.annual_license_days, prices=prices)
+        prices.append(ProductPrice(currency='USD', amount_minor=price_usd_minor, label=f'USD {price_usd_minor / 100:.2f} / {duration_days} days'))
+    return ProductResponse(name=plan.name if plan else 'Media Assist Pro', duration_days=duration_days, prices=prices)
 
 
 @router.post('/v1/billing/checkout', response_model=CheckoutResponse)
-async def create_checkout(payload: CheckoutRequest, auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> CheckoutResponse:
+async def create_checkout(
+    payload: CheckoutRequest,
+    auth: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> CheckoutResponse:
     currency = payload.currency
     if (currency == 'INR' and not settings.enable_inr_checkout) or (currency == 'USD' and not settings.enable_usd_checkout):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='This checkout currency is not enabled')
+
+    plan_id = payload.plan_id or 'pro'
+    plan = db.get(Plan, plan_id)
+    if payload.plan_id and not plan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Requested plan was not found')
+
     amount = settings.price_inr_minor if currency == 'INR' else settings.price_usd_minor
+    if plan:
+        amount = plan.price_inr_minor if currency == 'INR' else plan.price_usd_minor
+
     reference = f'MA-{uuid.uuid4().hex[:32]}'
     expires_at = utcnow() + timedelta(hours=24)
-    checkout = Checkout(user_id=auth.user.id, reference_id=reference, currency=currency, amount_minor=amount, expires_at=expires_at)
+    checkout = Checkout(
+        user_id=auth.user.id,
+        plan_id=plan.id if plan else None,
+        reference_id=reference,
+        currency=currency,
+        amount_minor=amount,
+        expires_at=expires_at,
+    )
     db.add(checkout)
     db.flush()
     try:
@@ -94,11 +120,14 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db), sett
             if not existing:
                 current = active_subscription(db, checkout.user_id)
                 start = max(utcnow(), as_utc(current.expires_at)) if current else utcnow()
+                plan = db.get(Plan, checkout.plan_id) if checkout.plan_id else None
+                duration_days = plan.duration_days if plan else settings.annual_license_days
                 db.add(Subscription(
                     user_id=checkout.user_id,
+                    plan_id=checkout.plan_id,
                     status='active',
                     starts_at=start,
-                    expires_at=start + timedelta(days=settings.annual_license_days),
+                    expires_at=start + timedelta(days=duration_days),
                     source='razorpay',
                     source_payment_id=payment['id'],
                     currency=checkout.currency,
@@ -138,6 +167,18 @@ def dev_pay(reference_id: str, db: Session = Depends(get_db), settings: Settings
     checkout.paid_at = utcnow()
     current = active_subscription(db, checkout.user_id)
     start = max(utcnow(), as_utc(current.expires_at)) if current else utcnow()
-    db.add(Subscription(user_id=checkout.user_id, status='active', starts_at=start, expires_at=start + timedelta(days=settings.annual_license_days), source='development', source_payment_id=f'dev-{reference_id}', currency=checkout.currency, amount_minor=checkout.amount_minor))
+    plan = db.get(Plan, checkout.plan_id) if checkout.plan_id else None
+    duration_days = plan.duration_days if plan else settings.annual_license_days
+    db.add(Subscription(
+        user_id=checkout.user_id,
+        plan_id=checkout.plan_id,
+        status='active',
+        starts_at=start,
+        expires_at=start + timedelta(days=duration_days),
+        source='development',
+        source_payment_id=f'dev-{reference_id}',
+        currency=checkout.currency,
+        amount_minor=checkout.amount_minor,
+    ))
     db.commit()
     return '<h1>Development payment activated</h1><p>Return to the extension and refresh status.</p>'

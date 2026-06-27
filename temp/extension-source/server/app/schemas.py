@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class MessageResponse(BaseModel):
@@ -34,6 +34,7 @@ class SignOutRequest(RefreshRequest):
 
 class CheckoutRequest(BaseModel):
     currency: Literal['INR', 'USD'] = 'INR'
+    plan_id: str | None = None
 
 
 class SettingsSyncResponse(BaseModel):
@@ -117,3 +118,87 @@ class AccountResponse(BaseModel):
     devices: list[DeviceResponse]
     entitlement: EntitlementResponse
     settings_sync: SettingsSyncResponse
+
+
+class TemplateCreate(BaseModel):
+    id: str = Field(min_length=1, max_length=36)
+    name: str = Field(min_length=1, max_length=100)
+    category: str = Field(min_length=1, max_length=50)
+    payload: dict[str, Any] | list[Any]
+
+
+class TemplateResponse(BaseModel):
+    id: str
+    name: str
+    category: str | None = None
+    payload: dict[str, Any] | list[Any]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PlanCreate(BaseModel):
+    id: str = Field(min_length=1, max_length=36, pattern=r'^[a-z0-9][a-z0-9_-]*$')
+    name: str = Field(min_length=1, max_length=100)
+    tier: Literal['premium'] = 'premium'
+    price_inr_minor: int = Field(default=50000, ge=0)
+    price_usd_minor: int = Field(default=499, ge=0)
+    duration_days: int = Field(default=365, ge=1)
+    features: list[str] = Field(default_factory=list)
+
+
+class PlanResponse(BaseModel):
+    id: str
+    name: str
+    tier: str
+    price_inr_minor: int
+    price_usd_minor: int
+    duration_days: int
+    features: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminUserResponse(BaseModel):
+    id: str
+    email: EmailStr
+    plan_id: str | None = None
+    plan_name: str | None = None
+    subscription_status: str | None = None
+    subscription_expires_at: datetime | None = None
+    device_count: int
+    settings_revision: int
+    created_at: datetime
+
+
+class AdminUserSubscriptionUpdate(BaseModel):
+    plan_id: str
+    starts_at: datetime | None = None
+    expires_at: datetime
+    status: Literal['active', 'cancelled'] = 'active'
+    amount_minor: int = Field(default=0, ge=0)
+    currency: Literal['INR', 'USD'] = 'INR'
+
+
+class BackupResponse(BaseModel):
+    filename: str
+    size_bytes: int
+    created_at: datetime
+
+
+class AuditLogResponse(BaseModel):
+    id: str
+    action: str
+    details: str | None = None
+    created_at: datetime
+
+
+class StatsResponse(BaseModel):
+    total_users: int
+    active_subscriptions: int
+    total_devices: int
+    projected_arr: int
+    db_size_bytes: int
+    wal_size_bytes: int
+    last_backup_at: datetime | None = None

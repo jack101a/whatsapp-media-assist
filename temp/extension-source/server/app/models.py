@@ -70,11 +70,37 @@ class RefreshToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Template(Base):
+    __tablename__ = 'templates'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default='{}')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class Plan(Base):
+    __tablename__ = 'plans'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    tier: Mapped[str] = mapped_column(String(24), default='premium')
+    price_inr_minor: Mapped[int] = mapped_column(Integer, default=50000)
+    price_usd_minor: Mapped[int] = mapped_column(Integer, default=499)
+    duration_days: Mapped[int] = mapped_column(Integer, default=365)
+    features_json: Mapped[str] = mapped_column(Text, default='[]')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Subscription(Base):
     __tablename__ = 'subscriptions'
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    plan_id: Mapped[str | None] = mapped_column(ForeignKey('plans.id', ondelete='SET NULL'), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(24), default='active', index=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -86,6 +112,7 @@ class Subscription(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     user: Mapped[User] = relationship(back_populates='subscriptions')
+    plan: Mapped[Plan | None] = relationship()
 
 
 class Checkout(Base):
@@ -93,6 +120,7 @@ class Checkout(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    plan_id: Mapped[str | None] = mapped_column(ForeignKey('plans.id', ondelete='SET NULL'), nullable=True, index=True)
     reference_id: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     razorpay_link_id: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
     short_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -104,6 +132,15 @@ class Checkout(Base):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AdminAuditLog(Base):
+    __tablename__ = 'admin_audit_logs'
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    action: Mapped[str] = mapped_column(String(100), index=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class PaymentEvent(Base):
     __tablename__ = 'payment_events'
 
@@ -111,3 +148,10 @@ class PaymentEvent(Base):
     event_type: Mapped[str] = mapped_column(String(80), index=True)
     payload_json: Mapped[str] = mapped_column(Text)
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SystemSetting(Base):
+    __tablename__ = 'system_settings'
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
