@@ -1053,14 +1053,16 @@ export function ContentApp() {
           {overflowPinnedProfiles.length > 0 && <select className="ma-profile-select" aria-label="More pipelines" disabled={busy} value="" onChange={(event) => { const profile = overflowPinnedProfiles.find((item) => item.id === event.target.value); event.currentTarget.value = ''; if (profile) void executeProfile(profile); }}><option value="">More</option>{overflowPinnedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}
         </div>}
       </div>
-      {media.kind === 'image' && <button className="ma-tool-btn" title="Crop" onClick={() => { setCropMode(true); setQuickPanel(null); }}><Icon name="crop" /><span>Crop</span></button>}
-      {media.kind === 'image' && <button className="ma-tool-btn" title={premium ? 'Resize' : 'Resize with saved defaults and download'} disabled={busy} onClick={() => premium ? setQuickPanel((current) => current === 'resize' ? null : 'resize') : downloadWithDefaultResize()}><Icon name="resize" /><span>Resize</span></button>}
-      <button className="ma-tool-btn" title={media.kind === 'pdf' ? 'Compress PDF' : 'Compress and download'} onClick={() => setQuickPanel((current) => current === (media.kind === 'pdf' ? 'pdf-compress' : 'compress') ? null : (media.kind === 'pdf' ? 'pdf-compress' : 'compress'))}><Icon name="compress" /><span>{media.kind === 'pdf' ? 'Compress PDF' : 'Compress'}</span></button>
-      {premium && <div className="ma-button-group">
-        <button className="ma-tool-btn merge" title="Add to merge" disabled={busy} onClick={() => void addCurrentToMerge()}><Icon name="plus" /><span>Add to merge</span>{mergeItems.length > 0 && <b className="ma-count">{mergeItems.length}</b>}</button>
-        {mergeItems.length > 0 && !mergeOpen && <button className="ma-tool-btn stack" title="Open merge stack" onClick={() => setMergeOpen(true)}><Icon name="merge" /><span>Stack</span><b className="ma-count">{mergeItems.length}</b></button>}
-      </div>}
-      <button className="ma-tool-btn" title="Download with saved defaults" disabled={busy} onClick={() => void downloadCurrent()}><Icon name="download" /><span>Download</span></button>
+      <div className="ma-tool-strip">
+        {media.kind === 'image' && <button className="ma-tool-btn" title="Crop" onClick={() => { setCropMode(true); setQuickPanel(null); }}><Icon name="crop" /><span>Crop</span></button>}
+        {media.kind === 'image' && <button className="ma-tool-btn" title={premium ? 'Resize' : 'Resize with saved defaults and download'} disabled={busy} onClick={() => premium ? setQuickPanel((current) => current === 'resize' ? null : 'resize') : downloadWithDefaultResize()}><Icon name="resize" /><span>Resize</span></button>}
+        <button className="ma-tool-btn" title={media.kind === 'pdf' ? 'Compress PDF' : 'Compress and download'} onClick={() => setQuickPanel((current) => current === (media.kind === 'pdf' ? 'pdf-compress' : 'compress') ? null : (media.kind === 'pdf' ? 'pdf-compress' : 'compress'))}><Icon name="compress" /><span>{media.kind === 'pdf' ? 'Compress PDF' : 'Compress'}</span></button>
+        {premium && <div className="ma-button-group">
+          <button className="ma-tool-btn merge" title="Add to merge" disabled={busy} onClick={() => void addCurrentToMerge()}><Icon name="plus" /><span>Add to merge</span>{mergeItems.length > 0 && <b className="ma-count">{mergeItems.length}</b>}</button>
+          {mergeItems.length > 0 && !mergeOpen && <button className="ma-tool-btn stack" title="Open merge stack" onClick={() => setMergeOpen(true)}><Icon name="merge" /><span>Stack</span><b className="ma-count">{mergeItems.length}</b></button>}
+        </div>}
+        <button className="ma-tool-btn" title="Download with saved defaults" disabled={busy} onClick={() => void downloadCurrent()}><Icon name="download" /><span>Download</span></button>
+      </div>
     </div>
 
     {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: Math.max(82, media.rect.left + 12), top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={22} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: Math.min(innerWidth - 52, media.rect.right - 50), top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={22} /><span>Rotate right</span></button></>}

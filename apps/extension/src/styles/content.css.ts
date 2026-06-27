@@ -3,7 +3,7 @@ export const CONTENT_STYLES = `
 *, *::before, *::after { box-sizing: border-box; }
 .ma-root { position: fixed; inset: 0; z-index: 2147483600; pointer-events: none; font-family: Inter, Arial, Helvetica, sans-serif; color: #e9edef; font-size: 13px; }
 button, input, select { font: inherit; }
-.ma-toolbar { position: fixed; min-height: 31px; padding: 3px; display: flex; align-items: flex-start; gap: 7px; overflow-x: auto; overflow-y: visible; border: 1px solid rgba(255,255,255,.055); border-radius: 7px; background: rgba(17,27,33,.16); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); pointer-events: auto; scrollbar-width: none; contain: layout paint style; }
+.ma-toolbar { position: fixed; min-height: 31px; padding: 0; display: flex; align-items: flex-start; gap: 9px; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; pointer-events: auto; scrollbar-width: none; contain: layout paint style; }
 .ma-toolbar::-webkit-scrollbar { display: none; }
 .ma-tool-btn, .ma-profile-btn, .ma-toolbar-control, .ma-profile-select { position: relative; height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; border: 1px solid rgba(255,255,255,.14); border-radius: 7px; color: #edf4f4; background: #1f2c33; box-shadow: 0 1px 3px rgba(0,0,0,.16); cursor: pointer; }
 .ma-tool-btn { min-width: 24px; padding: 0 6px; }
@@ -12,18 +12,19 @@ button, input, select { font: inherit; }
 .ma-tool-btn:disabled, .ma-profile-btn:disabled, .ma-toolbar-control:disabled, .ma-profile-select:disabled { opacity: .45; cursor: wait; }
 .ma-toolbar.icons-only .ma-tool-btn { width: 24px; padding: 0; }
 .ma-toolbar.icons-only .ma-tool-btn > span { display: none; }
-.ma-toolbar-start { display: grid; gap: 4px; flex: none; }
+.ma-toolbar-start { width: 94px; padding: 6px; display: grid; gap: 6px; flex: none; border: 1px solid rgba(255,255,255,.055); border-radius: 14px; background: rgba(17,27,33,.18); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); }
 .ma-toolbar-controls { display: inline-flex; align-items: center; gap: 7px; }
-.ma-pipeline-rail { display: flex; align-items: center; gap: 5px; max-width: min(460px, calc(100vw - 140px)); overflow-x: auto; scrollbar-width: none; }
+.ma-tool-strip { min-height: 46px; padding: 6px; display: inline-flex; align-items: center; gap: 7px; flex: none; border: 1px solid rgba(255,255,255,.055); border-radius: 13px; background: rgba(17,27,33,.14); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); }
+.ma-pipeline-rail { display: grid; gap: 5px; width: 80px; max-height: 142px; overflow-y: auto; scrollbar-width: none; }
 .ma-pipeline-rail::-webkit-scrollbar { display: none; }
-.ma-profile-btn { width: 78px; max-width: 78px; padding: 0 6px; border: 1px solid rgba(0,168,132,.45); background: #0c6f60; color: #e9fff9; }
-.ma-profile-select { width: 82px; padding: 0 6px; color: #e9fff9; border-color: rgba(0,168,132,.45); background: #0c6f60; font-size: 9.5px; font-weight: 700; outline: none; }
+.ma-profile-btn { width: 80px; max-width: 80px; height: 23px; padding: 0 6px; border: 1px solid rgba(0,168,132,.45); background: #0c6f60; color: #e9fff9; }
+.ma-profile-select { width: 80px; height: 23px; padding: 0 6px; color: #e9fff9; border-color: rgba(0,168,132,.45); background: #0c6f60; font-size: 9.5px; font-weight: 700; outline: none; }
 .ma-toolbar-control { width: 24px; padding: 0; cursor: grab; }
 .ma-toolbar-control.locked { border-color: rgba(0,168,132,.5); color: #e9fff9; background: #0c6f60; cursor: pointer; }
 .ma-toolbar-control.disabled { cursor: not-allowed; }
-.ma-button-group { height: 25px; padding: 1px; display: inline-flex; align-items: center; gap: 3px; flex: none; border: 1px solid rgba(0,168,132,.25); border-radius: 8px; background: rgba(0,168,132,.12); }
-.ma-button-group .ma-tool-btn { height: 21px; border-color: transparent; background: transparent; }
-.ma-button-group .ma-tool-btn:hover { background: rgba(0,168,132,.22); }
+.ma-button-group { min-height: 25px; padding: 0; display: inline-flex; align-items: center; gap: 5px; flex: none; border: 0; border-radius: 8px; background: transparent; }
+.ma-button-group .ma-tool-btn { height: 24px; border-color: rgba(0,168,132,.35); background: #1f2c33; }
+.ma-button-group .ma-tool-btn:hover { background: #263942; }
 .ma-toolbar.icons-only .ma-button-group .ma-tool-btn { width: 24px; padding: 0; }
 .ma-profile-btn span { max-width: 52px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; font-weight: 700; }
 .ma-profile-btn b { min-width: 23px; padding: 2px 4px; border-radius: 999px; background: rgba(255,255,255,.1); font-size: 9px; }
