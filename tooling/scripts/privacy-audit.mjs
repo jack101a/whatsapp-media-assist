@@ -18,7 +18,7 @@ function walk(path) {
     const full = join(path, name);
     if (statSync(full).isDirectory()) walk(full);
     else if (/\.(?:ts|tsx|js|mjs|html)$/.test(name)) {
-      const rel = relative('.', full);
+      const rel = relative('.', full).replace(/\\/g, '/');
       const content = readFileSync(full, 'utf8');
       for (const rule of forbidden) if (rule.pattern.test(content)) failures.push(`${rel}: ${rule.label}`);
       if (/\bfetch\s*\(/.test(content) && !fetchAllowlist.has(rel)) failures.push(`${rel}: unapproved fetch`);
