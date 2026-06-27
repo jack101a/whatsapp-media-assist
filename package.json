@@ -1,48 +1,13 @@
 {
-  "name": "media-assist-extension",
-  "version": "1.4.0",
+  "name": "media-assist-monorepo",
   "private": true,
-  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "dev": "wxt",
-    "dev:firefox": "wxt -b firefox",
-    "prepare": "wxt prepare",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:privacy": "node scripts/privacy-audit.mjs",
-    "build": "npm run typecheck && npm run test && npm run test:privacy && wxt build && wxt build -b firefox && npm run test:browser-fixture",
-    "zip": "wxt zip && wxt zip -b firefox",
-    "release": "npm run build && npm run audit:keypair && npm run zip && node scripts/build-release.mjs && npm run audit:package",
-    "audit:package": "node scripts/package-audit.mjs",
-    "source:public": "node scripts/source-archive.mjs --public",
-    "test:browser-fixture": "node scripts/browser-fixture-test.mjs",
-    "screenshots": "node scripts/generate-screenshots.mjs",
-    "server:test": "pytest -q server/tests",
-    "server:lint": "python -m compileall -q server/app server/tests",
-    "audit:keypair": "node scripts/keypair-audit.mjs"
-  },
-  "dependencies": {
-    "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.4.149",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
-  },
-  "devDependencies": {
-    "@types/chrome": "^0.1.31",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "5.1.1",
-    "@wxt-dev/module-react": "1.2.2",
-    "adm-zip": "^0.5.16",
-    "esbuild": "^0.27.7",
-    "playwright-core": "^1.57.0",
-    "typescript": "^6.0.3",
-    "vite": "^7.3.0",
-    "vitest": "^4.0.16",
-    "wxt": "^0.20.26"
-  },
-  "overrides": {
-    "@vitejs/plugin-react": "5.1.1"
+    "dev:extension": "pnpm --filter media-assist-extension dev",
+    "build:extension": "pnpm --filter media-assist-extension build",
+    "dev:server": "cd apps/server && uvicorn app.main:app --reload",
+    "test:server": "cd apps/server && pytest tests/"
   }
 }
