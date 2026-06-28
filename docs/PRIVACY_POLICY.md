@@ -26,7 +26,7 @@ If you sign in or use Pro features, the licensing server processes only the data
 - plan and entitlement status
 - extension preferences and saved pipeline/template configurations
 - sync revision and timestamps
-- payment reference, amount, currency, status, refund status, and Razorpay event records
+- Razorpay order/reference IDs, amount, currency, status, refund status, and webhook event records needed to activate or verify Pro access
 
 Payment card, UPI, bank, and wallet details are entered on Razorpay-hosted pages. WhatsApp Media Assist does not receive or store those payment credentials.
 

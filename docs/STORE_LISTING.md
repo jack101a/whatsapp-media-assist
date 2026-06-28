@@ -48,7 +48,7 @@ Processed:
 - email address
 - random device ID and device name
 - authentication tokens
-- payment and entitlement status
+- entitlement status and Razorpay order/reference IDs
 - extension preferences and pipeline/template configurations
 
 Not processed:
@@ -57,6 +57,7 @@ Not processed:
 - chats, captions, contacts, phone numbers or conversation history
 - WhatsApp media URLs
 - downloaded filenames
+- card, UPI, bank or wallet details
 
 ## Pricing
 
@@ -126,7 +127,8 @@ Do not upload the Chrome package to Mozilla Add-ons.
 4. Upload screenshots and promotional assets from `assets/store-assets/`.
 5. Complete the Privacy tab:
    - Single purpose: local WhatsApp Web media editing and optional Pro account sync.
-   - Declare email/authentication/payment/account data only.
+   - Do not declare WhatsApp media, chats, contacts, filenames, card, UPI, bank or wallet details.
+   - If using OTP login and Pro sync, disclose only the account/authentication data and extension preferences actually sent to the licensing API.
    - State that WhatsApp media, chats, contacts and filenames are not collected.
 6. Add the privacy policy URL or paste the policy from `docs/PRIVACY_POLICY.md`.
 7. Set support email to `support.mediaassit@002529.xyz`.
