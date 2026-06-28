@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { PDFDocument, rgb } from 'pdf-lib';
 import type { MergeItem, MergeOptions } from '../../src/types/media';
 import type { ProcessorRequest, ProcessorResponse } from '../../src/types/processor';
 import { createId } from '../../src/utils/id';
@@ -161,6 +162,30 @@ async function encodeImage(canvas: HTMLCanvasElement, options: MergeOptions, id:
   return best;
 }
 
+function parseHex(value: string): { r: number; g: number; b: number } {
+  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(value);
+  if (!match) return { r: 1, g: 1, b: 1 };
+  return {
+    r: Number.parseInt(match[1]!, 16) / 255,
+    g: Number.parseInt(match[2]!, 16) / 255,
+    b: Number.parseInt(match[3]!, 16) / 255,
+  };
+}
+
+async function pdfFromCanvas(canvas: HTMLCanvasElement, quality: number, backgroundHex: string): Promise<Blob> {
+  const imageBlob = await canvasToBlob(canvas, 'image/jpeg', quality);
+  const pdf = await PDFDocument.create();
+  const image = await pdf.embedJpg(await imageBlob.arrayBuffer());
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const page = pdf.addPage([pageWidth, pageHeight]);
+  const background = parseHex(backgroundHex);
+  page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(background.r, background.g, background.b) });
+  page.drawImage(image, { x: 0, y: 0, width: pageWidth, height: pageHeight });
+  const bytes = await pdf.save({ useObjectStreams: true });
+  return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: 'application/pdf' });
+}
+
 async function mergeImagesInFrame(request: Extract<ProcessorRequest, { type: 'merge' }>): Promise<Blob> {
   const { items, options, id } = request;
   if (!items.length) throw new Error('Add at least one item to merge.');
@@ -185,6 +210,14 @@ async function mergeImagesInFrame(request: Extract<ProcessorRequest, { type: 'me
   prepared.forEach((source, index) => drawPlaced(context, source, slots[index]!, items[index]!, scaledOptions));
   prepared.forEach((source) => { source.width = 1; source.height = 1; });
   try {
+    if (options.format === 'pdf') {
+      let result = await pdfFromCanvas(output, options.quality, options.background || '#ffffff');
+      for (const quality of [0.82, 0.7, 0.58, 0.46, 0.36]) {
+        if (!options.maxBytes || result.size <= options.maxBytes) break;
+        result = await pdfFromCanvas(output, quality, options.background || '#ffffff');
+      }
+      return result;
+    }
     return await encodeImage(output, options, id);
   } finally {
     output.width = 1;
@@ -198,6 +231,7 @@ async function openPdfInFrame(blob: Blob, pdfWorkerUrl: string) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return pdfjs.getDocument({
     data: bytes,
+    disableWorker: true,
     useWorkerFetch: false,
     disableAutoFetch: true,
     disableStream: true,
@@ -247,7 +281,7 @@ async function rasterPdfInFrame(request: Extract<ProcessorRequest, { type: 'rast
 }
 
 function canMergeInFrame(request: ProcessorRequest): request is Extract<ProcessorRequest, { type: 'merge' }> {
-  return request.type === 'merge' && request.options?.format !== 'pdf';
+  return request.type === 'merge';
 }
 
 function ensureWorker(): Worker {

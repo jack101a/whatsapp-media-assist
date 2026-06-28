@@ -705,6 +705,7 @@ export function ContentApp() {
     let scanTimer: number | null = null;
     let lastScan = 0;
     let graceTimer: number | null = null;
+    let closingHintUntil = 0;
 
     const resetViewerTools = () => {
       previousKey.current = '';
@@ -718,6 +719,7 @@ export function ContentApp() {
 
     const accept = (next: ActiveMedia) => {
       missingSince.current = null;
+      closingHintUntil = 0;
       if (graceTimer !== null) {
         window.clearTimeout(graceTimer);
         graceTimer = null;
@@ -772,6 +774,7 @@ export function ContentApp() {
       }
 
       if (!mediaRef.current) return;
+      const closeHinted = closingHintUntil > now;
       if (missingSince.current === null) {
         missingSince.current = now;
         // A single delayed recheck keeps the toolbar stable through WhatsApp's
@@ -779,10 +782,10 @@ export function ContentApp() {
         graceTimer = window.setTimeout(() => {
           graceTimer = null;
           schedule();
-        }, 1000);
+        }, closeHinted ? 140 : 1000);
       }
       // Keep the session alive through a brief replacement to prevent blinking.
-      if (now - missingSince.current < 960) return;
+      if (now - missingSince.current < (closeHinted ? 120 : 960)) return;
 
       resetViewerTools();
       missingSince.current = null;
@@ -800,6 +803,30 @@ export function ContentApp() {
     };
 
     const schedule = () => { if (!frame && !document.hidden) frame = window.requestAnimationFrame(scan); };
+    const markClosingHint = () => {
+      if (!mediaRef.current) return;
+      closingHintUntil = performance.now() + 500;
+      if (graceTimer !== null) {
+        window.clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+      schedule();
+    };
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') markClosingHint();
+      schedule();
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || !mediaRef.current) {
+        schedule();
+        return;
+      }
+      const control = target.closest('button,[role="button"],[aria-label],[title]');
+      const label = [control?.getAttribute('aria-label'), control?.getAttribute('title'), control?.textContent].filter(Boolean).join(' ').toLowerCase();
+      if (target === mediaRef.current.viewer || /\b(close|back|dismiss)\b/.test(label)) markClosingHint();
+      schedule();
+    };
     const observer = new MutationObserver(schedule);
     const observeTarget = document.getElementById('app') ?? document.documentElement;
     observer.observe(observeTarget, {
@@ -809,13 +836,15 @@ export function ContentApp() {
       attributeFilter: ['src', 'aria-hidden', 'aria-modal', 'role'],
     });
     window.addEventListener('resize', schedule, { passive: true });
-    window.addEventListener('keydown', schedule, { capture: true });
+    window.addEventListener('keydown', handleKeydown, { capture: true });
+    window.addEventListener('pointerdown', handlePointerDown, { capture: true, passive: true });
     document.addEventListener('visibilitychange', schedule);
     scan();
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', schedule);
-      window.removeEventListener('keydown', schedule, true);
+      window.removeEventListener('keydown', handleKeydown, true);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('visibilitychange', schedule);
       if (frame) window.cancelAnimationFrame(frame);
       if (scanTimer !== null) window.clearTimeout(scanTimer);

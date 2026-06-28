@@ -77,10 +77,11 @@ Use the files in `assets/store-assets/`:
 AI-generated professional source artwork is saved separately in `assets/store-assets/ai-generated/`:
 
 - `icon-rich-source.png` - richer icon source, text-free
+- `promo-marquee-source.png` - marquee promotional artwork source
 - `promo-text-free-source.png` - text-free promotional artwork source
 - `promo-text-concept-source.png` - visual direction reference only; do not upload directly because generated text may be inaccurate
 
-Chrome Web Store upload fields still require exact dimensions. Use the exact-size files above for submission, or export refined versions from these AI sources at the required dimensions before upload.
+Chrome Web Store upload fields require exact dimensions. The exact-size files above have been exported from the AI-generated sources for submission.
 
 ## Chrome Package
 
@@ -133,4 +134,4 @@ Do not upload the Chrome package to Mozilla Add-ons.
 
 ## Support And Refund Copy
 
-Use `support.mediaassit@002529.xyz` for public support contact. Subscriptions and digital services are non-refundable unless a refund is required by applicable law.
+Use **support.mediaassit@002529.xyz** for public support contact. No refunds. Users are responsible for complying with WhatsApp's terms and policies; WhatsApp Media Assist is not responsible for WhatsApp account restrictions or other consequences caused by how the extension is used.

@@ -30,7 +30,11 @@ If you sign in or use Pro features, the licensing server processes only the data
 
 Payment card, UPI, bank, and wallet details are entered on Razorpay-hosted pages. WhatsApp Media Assist does not receive or store those payment credentials.
 
-Subscriptions and digital services are non-refundable unless a refund is required by applicable law. For billing, activation, privacy, or technical issues, contact support before opening a dispute so the account and payment records can be checked.
+No refunds.
+
+## User Responsibility
+
+You are responsible for how you use WhatsApp Media Assist and for complying with WhatsApp's terms and policies. WhatsApp Media Assist is not responsible for any WhatsApp account restriction, ban, data loss, business loss, or other consequence caused by how you use the extension.
 
 ## Permissions
 
@@ -51,6 +55,4 @@ Only one device session is active per account. Signing in on a new device revoke
 
 ## Contact
 
-```text
-support.mediaassit@002529.xyz
-```
+**support.mediaassit@002529.xyz**
