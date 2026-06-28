@@ -1,15 +1,24 @@
 import { browser } from 'wxt/browser';
 import type { MergeItem, MergeOptions } from '../../src/types/media';
 import type { ProcessorRequest, ProcessorResponse } from '../../src/types/processor';
+import { createId } from '../../src/utils/id';
+
+type PdfJsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
 
 const nonce = location.hash.slice(1);
 let worker: Worker | null = null;
 const active = new Set<string>();
 const A4_WIDTH = 2480;
 const A4_HEIGHT = 3508;
+let pdfjsPromise: Promise<PdfJsModule> | null = null;
 
 function send(response: ProcessorResponse): void {
   window.parent.postMessage({ channel: 'media-assist-processor-response', nonce, response }, '*');
+}
+
+function loadPdfjs(): Promise<PdfJsModule> {
+  pdfjsPromise ??= import('pdfjs-dist/legacy/build/pdf.mjs');
+  return pdfjsPromise;
 }
 
 function createA4Slots(count: number, layout: MergeOptions['layout'], padding: number, gap: number, gridColumns = 2, pageWidth = A4_WIDTH, pageHeight = A4_HEIGHT) {
@@ -183,6 +192,60 @@ async function mergeImagesInFrame(request: Extract<ProcessorRequest, { type: 'me
   }
 }
 
+async function openPdfInFrame(blob: Blob, pdfWorkerUrl: string) {
+  const pdfjs = await loadPdfjs();
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return pdfjs.getDocument({
+    data: bytes,
+    disableWorker: true,
+    useWorkerFetch: false,
+    disableAutoFetch: true,
+    disableStream: true,
+    useWasm: false,
+  } as never).promise;
+}
+
+async function rasterPdfInFrame(request: Extract<ProcessorRequest, { type: 'raster-pdf' }>): Promise<MergeItem[]> {
+  const pdf = await openPdfInFrame(request.blob, request.pdfWorkerUrl);
+  if (pdf.numPages > 60) {
+    await pdf.destroy();
+    throw new Error('PDF merge supports up to 60 pages per file.');
+  }
+  const items: MergeItem[] = [];
+  try {
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const base = page.getViewport({ scale: 1 });
+      const scale = Math.max(0.8, Math.min(1.6, 1800 / Math.max(base.width, base.height)));
+      const viewport = page.getViewport({ scale });
+      const output = makeCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+      const context = get2d(output);
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, output.width, output.height);
+      await page.render({ canvas: output as never, canvasContext: context as never, viewport }).promise;
+      const pageBlob = await canvasToBlob(output, 'image/jpeg', 0.9);
+      output.width = 1;
+      output.height = 1;
+      page.cleanup();
+      items.push({
+        id: createId(),
+        blob: pageBlob,
+        name: `${request.name} - page ${pageNumber}`,
+        rotation: 0,
+        placement: { offsetX: 0, offsetY: 0, scale: 1 },
+        sourceKey: `${request.sourceKey}:page:${pageNumber}`,
+        sourceType: 'pdf-page',
+        pageNumber,
+      });
+      send({ id: request.id, type: 'progress', current: pageNumber, total: pdf.numPages, note: `Reading PDF page ${pageNumber}/${pdf.numPages}` });
+    }
+  } finally {
+    await pdf.destroy();
+  }
+  return items;
+}
+
 function canMergeInFrame(request: ProcessorRequest): request is Extract<ProcessorRequest, { type: 'merge' }> {
   return request.type === 'merge' && request.options?.format !== 'pdf';
 }
@@ -214,6 +277,12 @@ window.addEventListener('message', (event) => {
   if (event.source !== window.parent) return;
   const message = event.data as { channel?: string; nonce?: string; request?: ProcessorRequest };
   if (message.channel !== 'media-assist-processor-request' || message.nonce !== nonce || !message.request) return;
+  if (message.request.type === 'raster-pdf') {
+    void rasterPdfInFrame(message.request)
+      .then((result) => send({ id: message.request!.id, type: 'success', result }))
+      .catch((error) => send({ id: message.request!.id, type: 'error', message: error instanceof Error ? error.message : 'Local PDF processing failed.' }));
+    return;
+  }
   if (canMergeInFrame(message.request)) {
     void mergeImagesInFrame(message.request)
       .then((result) => send({ id: message.request!.id, type: 'success', result }))

@@ -1,7 +1,6 @@
 services:
   api:
-    build:
-      context: ../server
+    image: ghcr.io/jack101a/whatsapp-media-assist-server:latest
     restart: unless-stopped
     env_file: ../server/.env
     secrets:
