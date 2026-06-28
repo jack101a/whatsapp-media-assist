@@ -51,6 +51,15 @@ function clampToolbarOffset(value: number): number {
   return Math.max(-1200, Math.min(1200, Math.round(value)));
 }
 
+function whatsappStyleFilename(kind: ActiveMedia['kind'], format: ImageFormat | 'pdf'): string {
+  const stamp = new Date()
+    .toLocaleString('en-CA', { hour12: false })
+    .replace(',', ' at')
+    .replace(/\//g, '-')
+    .replace(/:/g, '.');
+  return withExtension(`WhatsApp ${kind === 'pdf' ? 'Document' : 'Image'} ${stamp}`, format);
+}
+
 function pickSettingsPatch(payload: Partial<AppSettings>, keys: (keyof AppSettings)[]): Partial<AppSettings> {
   return keys.reduce<Partial<AppSettings>>((patch, key) => {
     if (payload[key] !== undefined) (patch as Record<string, unknown>)[key] = payload[key];
@@ -468,12 +477,13 @@ function MergeItemCard({ item, index, selected, onSelect, onChange, onRemove, on
   </article>;
 }
 
-function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast }: {
+function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, templates = [] }: {
   items: MergeItem[];
   settings: AppSettings;
   onItemsChange: (items: MergeItem[]) => void;
   onClose: () => void;
   onToast: (message: string, error?: boolean) => void;
+  templates?: ServerTemplate[];
 }) {
   const [layout, setLayout] = useState<MergeLayout>(settings.mergeDefaultLayout);
   const [format, setFormat] = useState<ImageFormat | 'pdf'>(settings.mergeDefaultFormat);
@@ -525,6 +535,23 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast }: {
     if (!selectedId && additions[0]) setSelectedId(additions[0].id);
   };
 
+  const applyMergeTemplate = (templateId: string) => {
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) return;
+    const payload = template.payload;
+    if (payload.mergeDefaultLayout === 'vertical' || payload.mergeDefaultLayout === 'horizontal' || payload.mergeDefaultLayout === 'grid') setLayout(payload.mergeDefaultLayout);
+    if (payload.mergeDefaultFormat === 'pdf' || payload.mergeDefaultFormat === 'jpeg' || payload.mergeDefaultFormat === 'png' || payload.mergeDefaultFormat === 'webp') setFormat(payload.mergeDefaultFormat);
+    if (payload.mergeDefaultMaxKB !== undefined) setMaxKB(String(payload.mergeDefaultMaxKB));
+    if (payload.mergeDefaultQuality !== undefined) setQuality(String(payload.mergeDefaultQuality));
+    if (payload.mergeDefaultGap !== undefined) setGap(String(payload.mergeDefaultGap));
+    if (payload.mergeDefaultPadding !== undefined) setPadding(String(payload.mergeDefaultPadding));
+    if (payload.mergeDefaultBorderWidth !== undefined) setBorderWidth(String(payload.mergeDefaultBorderWidth));
+    if (typeof payload.mergeDefaultBorderColor === 'string') setBorderColor(payload.mergeDefaultBorderColor);
+    if (typeof payload.mergeDefaultBackground === 'string') setBackground(payload.mergeDefaultBackground);
+    if (payload.mergeDefaultGridColumns !== undefined) setGridColumns(String(payload.mergeDefaultGridColumns));
+    onToast(`${template.name} preset applied.`);
+  };
+
   const exportMerge = async () => {
     if (!items.length) return;
     if (layout === 'grid' && !allImages) return onToast('Grid layout is available only when every item is an image.', true);
@@ -561,7 +588,7 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast }: {
       <MergeLayoutPreview items={items} layout={layout} background={background} gap={Number(gap) || 0} padding={Number(padding) || 0} borderWidth={Number(borderWidth) || 0} borderColor={borderColor} gridColumns={Number(gridColumns) || 2} selectedId={selectedId} onSelect={setSelectedId} onItemChange={updateItem} />
       <aside className="ma-merge-sidebar">
         <div className="ma-layout-tabs"><button className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}>Top & bottom</button><button className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}>Side by side</button><button className={layout === 'grid' ? 'active' : ''} disabled={!allImages} title={!allImages ? 'Grid is available only for images' : ''} onClick={() => setLayout('grid')}>Grid</button></div>
-        <div className="ma-merge-settings"><label>Output<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat | 'pdf')}><option value="pdf">PDF</option><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label>{layout === 'grid' && <label>Grid columns<input value={gridColumns} inputMode="numeric" onChange={(event) => setGridColumns(event.target.value.replace(/\D/g, ''))} /></label>}<label>Gap<input value={gap} inputMode="numeric" onChange={(event) => setGap(event.target.value.replace(/\D/g, ''))} /></label><label>Page margin<input value={padding} inputMode="numeric" onChange={(event) => setPadding(event.target.value.replace(/\D/g, ''))} /></label><label>Border<input value={borderWidth} inputMode="numeric" onChange={(event) => setBorderWidth(event.target.value.replace(/\D/g, ''))} /></label><label>Page colour<input type="color" value={background} onChange={(event) => setBackground(event.target.value)} /></label><label>Border colour<input type="color" value={borderColor} onChange={(event) => setBorderColor(event.target.value)} /></label><label className="wide">Filename<input value={filename} onChange={(event) => setFilename(event.target.value)} /></label></div>
+        <div className="ma-merge-settings">{templates.length > 0 && <label className="wide">Preset<select value="" onChange={(event) => applyMergeTemplate(event.target.value)}><option value="">Choose merge preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}<label>Output<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat | 'pdf')}><option value="pdf">PDF</option><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label>{layout === 'grid' && <label>Grid columns<input value={gridColumns} inputMode="numeric" onChange={(event) => setGridColumns(event.target.value.replace(/\D/g, ''))} /></label>}<label>Gap<input value={gap} inputMode="numeric" onChange={(event) => setGap(event.target.value.replace(/\D/g, ''))} /></label><label>Page margin<input value={padding} inputMode="numeric" onChange={(event) => setPadding(event.target.value.replace(/\D/g, ''))} /></label><label>Border<input value={borderWidth} inputMode="numeric" onChange={(event) => setBorderWidth(event.target.value.replace(/\D/g, ''))} /></label><label>Page colour<input type="color" value={background} onChange={(event) => setBackground(event.target.value)} /></label><label>Border colour<input type="color" value={borderColor} onChange={(event) => setBorderColor(event.target.value)} /></label><label className="wide">Filename<input value={filename} onChange={(event) => setFilename(event.target.value)} /></label></div>
         {selected && <div className="ma-selected-controls"><strong>Selected item</strong><div><button onClick={() => setCropItem(selected)}><Icon name="crop" size={15} />Crop</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 270) % 360) as Rotation })}><Icon name="rotate-left" size={15} />Left</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 90) % 360) as Rotation })}><Icon name="rotate-right" size={15} />Right</button></div><label>Zoom <input type="range" min="60" max="160" value={Math.round((selected.placement?.scale ?? 1) * 100)} onChange={(event) => updateItem({ ...selected, placement: { ...(selected.placement ?? { offsetX: 0, offsetY: 0, scale: 1 }), scale: Number(event.target.value) / 100 } })} /></label><button className="ma-reset-position" onClick={() => updateItem({ ...selected, placement: { offsetX: 0, offsetY: 0, scale: 1 } })}>Reset position & zoom</button></div>}
       </aside>
     </div>
@@ -748,6 +775,7 @@ export function ContentApp() {
   const visiblePinnedProfiles = pinnedProfiles.slice(0, 5);
   const overflowPinnedProfiles = pinnedProfiles.slice(5);
   const imageTemplates = useMemo(() => premium ? serverTemplates.filter((template) => template.category === 'image_defaults') : [], [premium, serverTemplates]);
+  const mergeTemplates = useMemo(() => premium ? serverTemplates.filter((template) => template.category === 'merge_pdf') : [], [premium, serverTemplates]);
   const cropTemplates = useMemo(() => imageTemplates.filter((template) => {
     const ratio = template.payload.defaultCropRatio;
     return ratio && ratio !== 'free' && ratio !== 'original';
@@ -796,16 +824,25 @@ export function ContentApp() {
     window.addEventListener('pointerup', up);
   }, [settings, toolbarPreviewOffset]);
 
-  const downloadCurrent = async (maxKB?: number, formatOverride?: ImageFormat, qualityOverride?: number, transformOverride: TransformState = transform) => {
+  const downloadCurrent = async (
+    maxKB?: number,
+    formatOverride?: ImageFormat,
+    qualityOverride?: number,
+    transformOverride: TransformState = transform,
+    filenameMode: 'custom' | 'whatsapp' = 'custom',
+  ) => {
     if (!media || !settings) return;
     setBusy(true);
     try {
       const source = await captureActiveMedia(media);
       if (media.kind === 'pdf') {
-        const name = withExtension(renderFilename(settings.defaultFilenameTemplate, { format: 'pdf' }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), 'pdf');
+        const name = filenameMode === 'whatsapp'
+          ? whatsappStyleFilename('pdf', 'pdf')
+          : withExtension(renderFilename(settings.defaultFilenameTemplate, { format: 'pdf' }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), 'pdf');
         await downloadBlob(source, name);
         toast(`Downloaded ${name}`);
         setQuickPanel(null);
+        setTransform(EMPTY_TRANSFORM);
         return;
       }
       const format = formatOverride ?? settings.defaultFormat;
@@ -825,20 +862,23 @@ export function ContentApp() {
         },
         background: '#ffffff',
       });
-      const filename = withExtension(renderFilename(settings.defaultFilenameTemplate, { width: result.width, height: result.height, format }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), format);
+      const filename = filenameMode === 'whatsapp'
+        ? whatsappStyleFilename('image', format)
+        : withExtension(renderFilename(settings.defaultFilenameTemplate, { width: result.width, height: result.height, format }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), format);
       await downloadBlob(result.blob, filename);
-      if (!premium) setTransform(EMPTY_TRANSFORM);
+      setTransform(EMPTY_TRANSFORM);
       toast(`Downloaded ${filename} • ${formatBytes(result.blob.size)}`);
       setQuickPanel(null);
     } catch (error) {
       toast(error instanceof PrivacySourceError ? 'This media is not locally accessible. No outside request was made.' : (error instanceof Error ? error.message : 'Download failed.'), true);
     } finally {
+      terminateProcessor();
       setBusy(false);
     }
   };
 
 
-  const compressCurrentPdf = async (maxKB?: number, qualityOverride?: number) => {
+  const compressCurrentPdf = async (maxKB?: number, qualityOverride?: number, filenameMode: 'custom' | 'whatsapp' = 'custom') => {
     if (!media || media.kind !== 'pdf' || !settings) return;
     setBusy(true);
     try {
@@ -846,13 +886,17 @@ export function ContentApp() {
       const result = await compressPdfLocally(source, kbToBytes(maxKB ?? settings.defaultMaxKB), clampQualityPercent(qualityOverride, settings.defaultQuality) / 100, (current, total, note) => {
         if (current === 1 || current === total) toast(note);
       });
-      const filename = withExtension(renderFilename(settings.defaultFilenameTemplate, { format: 'pdf' }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), 'pdf');
+      const filename = filenameMode === 'whatsapp'
+        ? whatsappStyleFilename('pdf', 'pdf')
+        : withExtension(renderFilename(settings.defaultFilenameTemplate, { format: 'pdf' }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), 'pdf');
       await downloadBlob(result, filename);
       toast(`Downloaded ${filename} • ${formatBytes(result.size)}`);
       setQuickPanel(null);
     } catch (error) {
       toast(error instanceof PrivacySourceError ? 'This PDF is not locally accessible. No outside request was made.' : (error instanceof Error ? error.message : 'PDF compression failed.'), true);
     } finally {
+      setTransform(EMPTY_TRANSFORM);
+      terminateProcessor();
       setBusy(false);
     }
   };
@@ -982,6 +1026,8 @@ export function ContentApp() {
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Pipeline failed.', true);
     } finally {
+      setTransform(EMPTY_TRANSFORM);
+      terminateProcessor();
       setBusy(false);
       setPendingPipeline(null);
     }
@@ -1012,7 +1058,7 @@ export function ContentApp() {
     const resize = settings.defaultWidth || settings.defaultHeight
       ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit }
       : undefined;
-    void downloadCurrent(undefined, undefined, undefined, { ...transform, resize });
+    void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp');
   };
 
   const applyImageTemplate = async (templateId: string) => {
@@ -1036,7 +1082,7 @@ export function ContentApp() {
   const toolbarSpaceBeforeOfficialControls = Math.max(88, innerWidth - toolbarLeft - 380);
   const toolbarMaxWidth = Math.min(Math.max(88, viewerRect.width * 0.56), toolbarSpaceBeforeOfficialControls);
   const hasPipelineRail = media.kind === 'image' && premium && pinnedProfiles.length > 0;
-  const rotateTop = media.rect.top + media.rect.height / 2 - 19;
+  const rotateTop = media.rect.top + media.rect.height / 2 - 34;
   const transformed = media.kind === 'image' ? transformedDimensions(media.element, transform.rotation) : null;
   const cropRect = media.kind === 'image' && transformed ? containRect(media.rect, transformed.width, transformed.height) : media.rect;
 
@@ -1065,13 +1111,13 @@ export function ContentApp() {
       </div>
     </div>
 
-    {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: Math.max(82, media.rect.left + 12), top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={22} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: Math.min(innerWidth - 52, media.rect.right - 50), top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={22} /><span>Rotate right</span></button></>}
+    {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: Math.max(82, media.rect.left + 12), top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={42} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: Math.min(innerWidth - 82, media.rect.right - 80), top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={42} /><span>Rotate right</span></button></>}
 
     {quickPanel === 'resize' && media.kind === 'image' && premium && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} templates={resizeTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onApply={(resize) => setTransform((current) => ({ ...current, resize }))} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'compress' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality)} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality)} onClose={() => setQuickPanel(null)} /></div>}
-    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} initial={transform.crop} templates={cropTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else if (!premium) void downloadCurrent(undefined, undefined, undefined, nextTransform); }} />}
-    {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
+    {quickPanel === 'compress' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality, transform, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} initial={transform.crop} templates={cropTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else if (!premium) void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
+    {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} templates={mergeTemplates} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
     <div className="ma-toast-stack">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
   </div>;
 }

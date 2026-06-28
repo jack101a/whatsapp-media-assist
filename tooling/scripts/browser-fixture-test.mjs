@@ -147,7 +147,11 @@ try {
   await options.waitForSelector('.page');
   const optionMetrics = await options.locator('.page').evaluate((el) => ({ width: el.getBoundingClientRect().width, viewport: innerWidth }));
   check(optionMetrics.width >= optionMetrics.viewport * 0.95, 'Options UI is not full-page width');
-  check(await options.locator('aside nav button').count() === 6, 'Options page navigation is incorrect');
+  const navLabels = await options.locator('aside nav button').allInnerTexts();
+  check(navLabels.length === 9, 'Options page navigation is incorrect');
+  for (const label of ['Crop', 'Resize', 'Compress', 'Download name']) {
+    check(navLabels.some((item) => item.includes(label)), `Options page ${label} tab is missing`);
+  }
   check(!(await options.locator('body').innerText()).includes('Overview'), 'Unnecessary Overview page is present');
   const bodyBackground = await options.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor);
   check(bodyBackground !== 'rgb(0, 0, 0)', 'Options page is not using the light interface');

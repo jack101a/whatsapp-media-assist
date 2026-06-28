@@ -27,6 +27,10 @@ export interface AppSettings {
   allowUpscale: boolean;
   defaultResizeFit: 'contain' | 'cover' | 'stretch';
   defaultCropRatio: CropRatio;
+  defaultCropPresetId?: string;
+  defaultResizePresetId?: string;
+  defaultCompressPresetId?: string;
+  defaultMergePresetId?: string;
   removeSpacesByDefault: boolean;
   removeSpecialCharactersByDefault: boolean;
 
@@ -68,6 +72,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   allowUpscale: true,
   defaultResizeFit: 'contain',
   defaultCropRatio: 'free',
+  defaultCropPresetId: undefined,
+  defaultResizePresetId: undefined,
+  defaultCompressPresetId: undefined,
+  defaultMergePresetId: undefined,
   removeSpacesByDefault: false,
   removeSpecialCharactersByDefault: true,
 
