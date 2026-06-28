@@ -15,6 +15,7 @@ export type PipelineStep =
 export interface MediaProfile {
   id: string;
   name: string;
+  tag?: string;
   pinned: boolean;
   inputCount: number;
   mergeLayout: MergeLayout;

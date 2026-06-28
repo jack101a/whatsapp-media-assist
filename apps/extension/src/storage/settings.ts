@@ -124,6 +124,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
         if (Array.isArray(profile.steps)) {
           return {
             ...profile,
+            tag: typeof profile.tag === 'string' ? profile.tag.slice(0, 8) : undefined,
             inputCount: Math.max(1, Math.min(20, Number(profile.inputCount) || 1)),
             mergeLayout: normalizeLayout(profile.mergeLayout),
           };
@@ -138,6 +139,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
         return {
           id: profile.id ?? crypto.randomUUID(),
           name: profile.name ?? 'Pipeline',
+          tag: typeof profile.tag === 'string' ? profile.tag.slice(0, 8) : undefined,
           pinned: profile.pinned !== false,
           inputCount: Math.max(1, Math.min(20, Number(profile.requiredInputs) || 1)),
           mergeLayout: normalizeLayout(profile.layout),

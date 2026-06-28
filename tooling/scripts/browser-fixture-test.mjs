@@ -96,7 +96,7 @@ const entitlementPayload = {
 const entitlementBytes = Buffer.from(JSON.stringify(entitlementPayload));
 const fixtureEntitlement = `${b64url(entitlementBytes)}.${Buffer.alloc(64, 1).toString('base64url')}`;
 const fixtureProfile = {
-  id: 'fixture-pipeline', name: 'Upload1', pinned: true, inputCount: 1, mergeLayout: 'vertical', background: '#ffffff',
+  id: 'fixture-pipeline', name: 'Upload1', tag: 'UP1', pinned: true, inputCount: 1, mergeLayout: 'vertical', background: '#ffffff',
   steps: [
     { id: 'resize', type: 'resize', width: 640, fit: 'contain', allowUpscale: false },
     { id: 'format', type: 'format', format: 'jpeg' },
@@ -160,6 +160,7 @@ try {
   await options.getByRole('button', { name: /^Pipelines$/i }).click();
   await options.getByRole('button', { name: /New pipeline/i }).click();
   check(await options.getByLabel('Button name').inputValue() === 'Upload1', 'Pipeline builder did not create a named toolbar button');
+  check(await options.getByLabel('Button tag').inputValue() === 'UP1', 'Pipeline builder did not create a compact toolbar tag');
   check(await options.locator('.step-card').count() >= 6, 'Pipeline builder is missing processing steps');
   const filenameStyle = options.getByLabel('Style');
   check(await filenameStyle.count() === 1, 'Filename preset dropdown is missing');
@@ -217,11 +218,11 @@ try {
   await openViewer();
   const labels = await page.locator('#media-assist-extension-root').evaluate((host) => [...host.shadowRoot.querySelectorAll('.ma-tool-btn > span')].map((node) => node.textContent?.trim()));
   for (const expected of ['Crop', 'Resize', 'Compress', 'Add to merge', 'Download']) check(labels.includes(expected), `WhatsApp toolbar label missing: ${expected}`);
-  check(await page.locator('#media-assist-extension-root').evaluate((host) => [...host.shadowRoot.querySelectorAll('.ma-profile-btn')].some((button) => button.textContent.includes('Upload1'))), 'Saved pipeline button did not appear in WhatsApp toolbar');
+  check(await page.locator('#media-assist-extension-root').evaluate((host) => [...host.shadowRoot.querySelectorAll('.ma-profile-btn')].some((button) => button.textContent.includes('UP1') && button.getAttribute('title') === 'Upload1')), 'Saved pipeline tag button did not appear in WhatsApp toolbar');
 
   const pipelineDownloadPromise = page.waitForEvent('download', { timeout: 30000 });
   await page.locator('#media-assist-extension-root').evaluate((host) => {
-    const button = [...host.shadowRoot.querySelectorAll('.ma-profile-btn')].find((node) => node.textContent.includes('Upload1'));
+    const button = [...host.shadowRoot.querySelectorAll('.ma-profile-btn')].find((node) => node.textContent.includes('UP1'));
     button?.click();
   });
   const pipelineDownload = await pipelineDownloadPromise;

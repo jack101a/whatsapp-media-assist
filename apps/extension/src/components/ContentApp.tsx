@@ -128,6 +128,34 @@ function containRect(container: DOMRect, width: number, height: number): DOMRect
   );
 }
 
+function clipRectToViewport(rect: DOMRect): DOMRect {
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(innerWidth, rect.right);
+  const bottom = Math.min(innerHeight, rect.bottom);
+  if (right <= left || bottom <= top) return rect;
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+function cropFromVisibleRect(crop: NormalizedCrop, visibleRect: DOMRect, sourceRect: DOMRect): NormalizedCrop {
+  const left = visibleRect.left + crop.x * visibleRect.width;
+  const top = visibleRect.top + crop.y * visibleRect.height;
+  const right = left + crop.width * visibleRect.width;
+  const bottom = top + crop.height * visibleRect.height;
+  const x = Math.max(0, Math.min(1, (left - sourceRect.left) / Math.max(1, sourceRect.width)));
+  const y = Math.max(0, Math.min(1, (top - sourceRect.top) / Math.max(1, sourceRect.height)));
+  const cropRight = Math.max(0, Math.min(1, (right - sourceRect.left) / Math.max(1, sourceRect.width)));
+  const cropBottom = Math.max(0, Math.min(1, (bottom - sourceRect.top) / Math.max(1, sourceRect.height)));
+  return { x, y, width: Math.max(0.005, cropRight - x), height: Math.max(0.005, cropBottom - y) };
+}
+
+function pipelineTag(profile: MediaProfile): string {
+  const explicit = profile.tag?.trim();
+  if (explicit) return explicit.slice(0, 8);
+  const initials = profile.name.split(/\s+/).map((part) => part[0]).join('').toUpperCase();
+  return (initials || profile.name || 'PIPE').slice(0, 5);
+}
+
 function transformedDimensions(image: HTMLImageElement, rotation: Rotation) {
   return rotation === 90 || rotation === 270
     ? { width: image.naturalHeight, height: image.naturalWidth }
@@ -192,8 +220,9 @@ function PreviewCanvas({ media, transform }: { media: ActiveMedia; transform: Tr
   return <canvas ref={canvasRef} className="ma-live-preview" style={{ left: media.rect.left, top: media.rect.top, width: media.rect.width, height: media.rect.height }} />;
 }
 
-function CropOverlay({ imageRect, initial, onCancel, onConfirm, templates, onApplyTemplate }: {
+function CropOverlay({ imageRect, sourceRect, initial, onCancel, onConfirm, templates, onApplyTemplate }: {
   imageRect: DOMRect;
+  sourceRect: DOMRect;
   initial?: NormalizedCrop;
   onCancel: () => void;
   onConfirm: (crop: NormalizedCrop) => void;
@@ -270,7 +299,7 @@ function CropOverlay({ imageRect, initial, onCancel, onConfirm, templates, onApp
       {!!templates?.length && <select className="ma-compact-select" aria-label="Crop presets" value="" onChange={(event) => applyTemplate(event.target.value)}><option value="">Crop preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>}
       <button className="ma-compact-btn" onClick={() => setCrop({ x: 0, y: 0, width: 1, height: 1 })}>Reset</button>
       <button className="ma-compact-btn" onClick={onCancel}>Cancel</button>
-      <button className="ma-compact-btn primary" onClick={() => onConfirm(crop)}><Icon name="check" />Apply</button>
+      <button className="ma-compact-btn primary" onClick={() => onConfirm(cropFromVisibleRect(crop, imageRect, sourceRect))}><Icon name="check" />Apply</button>
     </div>
   </div>;
 }
@@ -282,11 +311,12 @@ function QuickPanelCard({ title, onClose, children }: { title: string; onClose: 
   </section>;
 }
 
-function ResizePanel({ settings, current, onApply, onClose, templates, onApplyTemplate }: {
+function ResizePanel({ settings, current, onApply, onClose, busy, templates, onApplyTemplate }: {
   settings: AppSettings;
   current?: ResizeSettings;
   onApply: (resize?: ResizeSettings) => void;
   onClose: () => void;
+  busy: boolean;
   templates?: ServerTemplate[];
   onApplyTemplate?: (templateId: string) => void;
 }) {
@@ -302,7 +332,7 @@ function ResizePanel({ settings, current, onApply, onClose, templates, onApplyTe
   return <QuickPanelCard title="Resize" onClose={onClose}>
     {!!templates?.length && <label className="ma-single-field">Preset<select value="" onChange={(event) => applyTemplate(event.target.value)}><option value="">Choose resize preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
     <div className="ma-mini-grid"><label>Width<input value={width} inputMode="numeric" onChange={(event) => setWidth(event.target.value.replace(/\D/g, ''))} placeholder="Original" /></label><label>Height<input value={height} inputMode="numeric" onChange={(event) => setHeight(event.target.value.replace(/\D/g, ''))} placeholder="Auto" /></label></div>
-    <div className="ma-panel-actions"><button className="ma-compact-btn" onClick={() => { onApply(undefined); onClose(); }}>Reset</button><button className="ma-compact-btn primary" onClick={() => { onApply(width || height ? { width: width ? Number(width) : undefined, height: height ? Number(height) : undefined, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined); onClose(); }}>Apply</button></div>
+    <div className="ma-panel-actions"><button className="ma-compact-btn" disabled={busy} onClick={() => { onApply(undefined); onClose(); }}>Reset</button><button className="ma-compact-btn primary" disabled={busy} onClick={() => { onApply(width || height ? { width: width ? Number(width) : undefined, height: height ? Number(height) : undefined, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined); onClose(); }}>{busy ? 'Working...' : 'Apply'}</button></div>
   </QuickPanelCard>;
 }
 
@@ -325,10 +355,10 @@ function CompressPanel({ settings, onDownload, onClose, busy, templates, onApply
     setQuality(String(template.payload.defaultQuality ?? settings.defaultQuality));
     onApplyTemplate?.(templateId);
   };
-  return <QuickPanelCard title="Compress & download" onClose={onClose}>
+  return <QuickPanelCard title="Compress" onClose={onClose}>
     {!!templates?.length && <label className="ma-single-field">Preset<select value="" onChange={(event) => applyTemplate(event.target.value)}><option value="">Choose compression preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
     <div className="ma-mini-grid"><label>Max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Format<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat)}><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label></div>
-    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, format, clampQualityPercent(quality ? Number(quality) : undefined, settings.defaultQuality))}><Icon name="download" />{busy ? 'Working…' : 'Download'}</button></div>
+    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, format, clampQualityPercent(quality ? Number(quality) : undefined, settings.defaultQuality))}><Icon name="download" />{busy ? 'Working...' : 'Apply'}</button></div>
   </QuickPanelCard>;
 }
 
@@ -454,7 +484,7 @@ function BlobCropEditor({ item, onCancel, onConfirm }: { item: MergeItem; onCanc
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
-  return <div className="ma-blob-crop"><img ref={imageRef} src={url} alt="Crop selected item" onLoad={() => setRect(imageRef.current?.getBoundingClientRect() ?? null)} />{rect && <CropOverlay imageRect={rect} initial={item.crop} onCancel={onCancel} onConfirm={onConfirm} />}</div>;
+  return <div className="ma-blob-crop"><img ref={imageRef} src={url} alt="Crop selected item" onLoad={() => setRect(imageRef.current?.getBoundingClientRect() ?? null)} />{rect && <CropOverlay imageRect={rect} sourceRect={rect} initial={item.crop} onCancel={onCancel} onConfirm={onConfirm} />}</div>;
 }
 
 function MergeItemCard({ item, index, selected, onSelect, onChange, onRemove, onCrop, onDragStart, onDrop }: {
@@ -1082,9 +1112,14 @@ export function ContentApp() {
   const toolbarSpaceBeforeOfficialControls = Math.max(88, innerWidth - toolbarLeft - 380);
   const toolbarMaxWidth = Math.min(Math.max(88, viewerRect.width * 0.56), toolbarSpaceBeforeOfficialControls);
   const hasPipelineRail = media.kind === 'image' && premium && pinnedProfiles.length > 0;
-  const rotateTop = media.rect.top + media.rect.height / 2 - 34;
+  const rotateButtonSize = 136;
+  const rotateIconSize = 84;
+  const rotateTop = Math.max(8, Math.min(innerHeight - rotateButtonSize - 8, media.rect.top + media.rect.height / 2 - rotateButtonSize / 2));
+  const rotateLeft = Math.max(12, Math.min(innerWidth - rotateButtonSize - 12, media.rect.left + 12));
+  const rotateRight = Math.max(12, Math.min(innerWidth - rotateButtonSize - 12, media.rect.right - rotateButtonSize - 12));
   const transformed = media.kind === 'image' ? transformedDimensions(media.element, transform.rotation) : null;
-  const cropRect = media.kind === 'image' && transformed ? containRect(media.rect, transformed.width, transformed.height) : media.rect;
+  const cropSourceRect = media.kind === 'image' && transformed ? containRect(media.rect, transformed.width, transformed.height) : media.rect;
+  const cropRect = clipRectToViewport(cropSourceRect);
 
   return <div className="ma-root">
     {media.kind === 'image' && <PreviewCanvas media={media} transform={transform} />}
@@ -1095,7 +1130,7 @@ export function ContentApp() {
           <button className={`ma-toolbar-control${settings.toolbarLocked ? ' locked' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar' : 'Lock toolbar'} onClick={() => updateToolbarSettings({ toolbarLocked: !settings.toolbarLocked })}><Icon name="lock" size={15} /></button>
         </div>
         {hasPipelineRail && <div className="ma-pipeline-rail">
-          {visiblePinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{profile.name}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}
+          {visiblePinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{pipelineTag(profile)}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}
           {overflowPinnedProfiles.length > 0 && <select className="ma-profile-select" aria-label="More pipelines" disabled={busy} value="" onChange={(event) => { const profile = overflowPinnedProfiles.find((item) => item.id === event.target.value); event.currentTarget.value = ''; if (profile) void executeProfile(profile); }}><option value="">More</option>{overflowPinnedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}
         </div>}
       </div>
@@ -1111,12 +1146,12 @@ export function ContentApp() {
       </div>
     </div>
 
-    {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: Math.max(82, media.rect.left + 12), top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={42} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: Math.min(innerWidth - 82, media.rect.right - 80), top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={42} /><span>Rotate right</span></button></>}
+    {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: rotateLeft, top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={rotateIconSize} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: rotateRight, top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={rotateIconSize} /><span>Rotate right</span></button></>}
 
-    {quickPanel === 'resize' && media.kind === 'image' && premium && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} templates={resizeTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onApply={(resize) => setTransform((current) => ({ ...current, resize }))} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'compress' && media.kind === 'image' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality, transform, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
-    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} initial={transform.crop} templates={cropTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else if (!premium) void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
+    {quickPanel === 'resize' && media.kind === 'image' && premium && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} busy={busy} templates={resizeTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onApply={(resize) => void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {quickPanel === 'compress' && media.kind === 'image' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality, transform, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} sourceRect={cropSourceRect} initial={transform.crop} templates={cropTemplates} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
     {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} templates={mergeTemplates} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
     <div className="ma-toast-stack">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
   </div>;
