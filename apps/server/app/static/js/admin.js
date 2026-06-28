@@ -61,8 +61,14 @@ let activeTab = 'analytics';
         if (contentType.includes("octet-stream") && method === "GET") {
           return res;
         }
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "API Request failed.");
+        let data = null;
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          data = { detail: text || res.statusText || "API Request failed." };
+        }
+        if (!res.ok) throw new Error(data.detail || `API request failed with HTTP ${res.status}.`);
         return data;
       } catch (err) {
         showToast(err.message, "error");
@@ -790,6 +796,8 @@ let activeTab = 'analytics';
         document.getElementById("settings-telegram-chat").value = settings.telegram_chat_id;
         document.getElementById("settings-rclone-path").value = settings.rclone_remote_path;
         document.getElementById("settings-rclone-file").value = settings.rclone_config;
+        document.getElementById("settings-razorpay-url").value = settings.razorpay_webhook_url || "";
+        document.getElementById("settings-razorpay-secret").value = settings.razorpay_webhook_secret || "";
       } catch (err) {}
     }
 

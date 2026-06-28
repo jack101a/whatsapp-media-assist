@@ -58,6 +58,11 @@ def serve_admin_dashboard(request: Request) -> HTMLResponse:
     return templates.TemplateResponse("admin_dashboard.html", {"request": request})
 
 
+@app.get('/privacy-policy', response_class=HTMLResponse)
+def serve_privacy_policy(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("privacy_policy.html", {"request": request})
+
+
 @app.get('/healthz')
 def health() -> dict[str, str]:
     return {'status': 'ok'}

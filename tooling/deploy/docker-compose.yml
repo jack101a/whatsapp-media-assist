@@ -1,19 +1,48 @@
 services:
   api:
-    image: ghcr.io/jack101a/whatsapp-media-assist-server:latest
+    image: ${MEDIA_ASSIST_IMAGE:-ghcr.io/jack101a/whatsapp-media-assist-server:latest}
+    pull_policy: always
     restart: unless-stopped
-    env_file: ../server/.env
-    secrets:
-      - source: entitlement_private_key
-        target: entitlement_private_key.pem
-        mode: 0444
+    init: true
+    user: root
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      APP_NAME: ${APP_NAME:-WhatsApp Media Assist}
+      API_BASE_URL: ${API_BASE_URL:-https://mediaassist.002529.xyz}
+      FRONTEND_SUCCESS_URL: ${FRONTEND_SUCCESS_URL:-https://mediaassist.002529.xyz/payment-complete}
+      DATABASE_URL: sqlite:////data/media-assist.db
+      JWT_SECRET: ${JWT_SECRET}
+      OTP_PEPPER: ${OTP_PEPPER}
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      ENTITLEMENT_PRIVATE_KEY_PATH: /run/secrets/entitlement_private_key.pem
+      ENTITLEMENT_PRIVATE_KEY_B64: ${ENTITLEMENT_PRIVATE_KEY_B64}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL:-no-reply.mediaassit@002529.xyz}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-WhatsApp Media Assist}
+      BREVO_REPLY_TO_EMAIL: ${BREVO_REPLY_TO_EMAIL:-support.mediaassit@002529.xyz}
+      BREVO_REPLY_TO_NAME: ${BREVO_REPLY_TO_NAME:-WhatsApp Media Assist Support}
+      BREVO_SANDBOX: ${BREVO_SANDBOX:-false}
+      PRICE_INR_MINOR: ${PRICE_INR_MINOR:-50000}
+      PRICE_USD_MINOR: ${PRICE_USD_MINOR:-499}
+      ENABLE_INR_CHECKOUT: ${ENABLE_INR_CHECKOUT:-true}
+      ENABLE_USD_CHECKOUT: ${ENABLE_USD_CHECKOUT:-false}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    command:
+      - sh
+      - -c
+      - |
+        mkdir -p /run/secrets /data
+        printf '%s' "$$ENTITLEMENT_PRIVATE_KEY_B64" | base64 -d > /run/secrets/entitlement_private_key.pem
+        chmod 0400 /run/secrets/entitlement_private_key.pem
+        alembic upgrade head
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8787 --workers 1 --proxy-headers --forwarded-allow-ips='*'
     ports:
-      - "127.0.0.1:8787:8787"
+      - "${MEDIA_ASSIST_PORT:-8787}:8787"
     volumes:
-      - mediaassist_data:/data
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,noexec,nosuid,nodev
+      - ${CONFIG_PATH:-/srv/ajaxhs/config}/media_assist_test/data:/data
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -23,18 +52,19 @@ services:
       interval: 20s
       timeout: 5s
       retries: 5
-    networks: [mediaassist]
+    networks:
+      default:
+      ajax_network:
+        aliases:
+          - mediaassist-api
+          - whatsapp-media-assist-api
     logging:
       options:
         max-size: "10m"
         max-file: "3"
 
-secrets:
-  entitlement_private_key:
-    file: ../owner-secrets/entitlement-private.pem
-
-volumes:
-  mediaassist_data:
-
 networks:
-  mediaassist:
+  default:
+    name: whatsapp-media-assist-test-stack-network
+  ajax_network:
+    external: true
