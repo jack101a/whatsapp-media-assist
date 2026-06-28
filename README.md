@@ -81,3 +81,5 @@ networks:
 ```
 
 For `mediaassist.002529.xyz`, keep the `ajax_network` aliases `mediaassist-api` and `whatsapp-media-assist-api` because the reverse proxy routes to `http://whatsapp-media-assist-api:8787`.
+
+Plan name, duration, features, and INR/USD prices are managed from the admin dashboard. The public checkout uses the `pro` plan when it exists; otherwise it uses the newest dashboard plan. Built-in server defaults are only a first-run fallback before any plan is created.

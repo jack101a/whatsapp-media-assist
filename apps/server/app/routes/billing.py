@@ -59,11 +59,17 @@ def _checkout_not_available(title: str, message: str) -> str:
     return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{safe_title}</title><style>body{{font:16px system-ui;background:#f5f7f8;color:#1f2937;display:grid;place-items:center;min-height:100vh;margin:0}}.card{{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:32px;max-width:460px;box-shadow:0 16px 50px #0001}}h1{{margin-top:0;color:#087a66}}</style></head><body><main class="card"><h1>{safe_title}</h1><p>{safe_message}</p></main></body></html>'''
 
 
+def _default_checkout_plan(db: Session) -> Plan | None:
+    pro_plan = db.get(Plan, 'pro')
+    if pro_plan:
+        return pro_plan
+    return db.scalar(select(Plan).order_by(Plan.created_at.desc()))
+
+
 @router.get('/v1/billing/product', response_model=ProductResponse)
 def product(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> ProductResponse:
     prices: list[ProductPrice] = []
-    # Eagerly load the 'pro' plan if it exists in the database
-    plan = db.scalar(select(Plan).where(Plan.id == 'pro'))
+    plan = _default_checkout_plan(db)
     duration = plan.duration_days if plan else settings.annual_license_days
     price_inr = plan.price_inr_minor if plan else settings.price_inr_minor
     price_usd = plan.price_usd_minor if plan else settings.price_usd_minor
@@ -81,12 +87,9 @@ async def create_checkout(payload: CheckoutRequest, auth: AuthContext = Depends(
     if (currency == 'INR' and not settings.enable_inr_checkout) or (currency == 'USD' and not settings.enable_usd_checkout):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='This checkout currency is not enabled')
     
-    plan_id = payload.plan_id or 'pro'
-    plan = db.get(Plan, plan_id)
-    if not plan:
-        # If it's not the default 'pro' plan, throw an error. If 'pro' is requested but missing, fallback to defaults.
-        if plan_id != 'pro':
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Requested plan was not found')
+    plan = db.get(Plan, payload.plan_id) if payload.plan_id else _default_checkout_plan(db)
+    if payload.plan_id and not plan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Requested plan was not found')
     
     amount = settings.price_inr_minor if currency == 'INR' else settings.price_usd_minor
     if plan:
