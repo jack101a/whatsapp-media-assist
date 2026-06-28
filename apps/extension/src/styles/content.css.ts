@@ -30,9 +30,9 @@ button, input, select { font: inherit; }
 .ma-profile-btn b { min-width: 23px; padding: 2px 4px; border-radius: 999px; background: rgba(255,255,255,.1); font-size: 9px; }
 .ma-count { min-width: 17px; height: 17px; padding: 0 4px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #00a884; color: white; font-size: 9px; font-weight: 800; }
 .ma-toolbar.icons-only .ma-count { position: absolute; right: -2px; top: -3px; }
-.ma-rotate-btn { position: fixed; z-index: 15; min-width: 136px; height: 136px; padding: 0 14px; border: 0; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; color: white; background: rgba(17,27,33,.9); box-shadow: 0 5px 18px rgba(0,0,0,.3); pointer-events: auto; cursor: pointer; }
-.ma-rotate-btn svg { width: 84px; height: 84px; }
-.ma-rotate-btn span { position: absolute; top: 146px; width: max-content; padding: 4px 7px; border-radius: 5px; background: rgba(17,27,33,.92); color: #d8e1e4; font-size: 9px; opacity: 0; transform: translateY(-3px); transition: .12s; pointer-events: none; }
+.ma-rotate-btn { position: fixed; z-index: 15; min-width: 68px; height: 68px; padding: 0 10px; border: 0; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; color: white; background: rgba(17,27,33,.9); box-shadow: 0 5px 18px rgba(0,0,0,.3); pointer-events: auto; cursor: pointer; }
+.ma-rotate-btn svg { width: 42px; height: 42px; }
+.ma-rotate-btn span { position: absolute; top: 80px; width: max-content; padding: 4px 7px; border-radius: 5px; background: rgba(17,27,33,.92); color: #d8e1e4; font-size: 9px; opacity: 0; transform: translateY(-3px); transition: .12s; pointer-events: none; }
 .ma-rotate-btn:hover { background: rgba(0,168,132,.35); }
 .ma-rotate-btn:hover span { opacity: 1; transform: translateY(0); }
 .ma-live-preview { position: fixed; z-index: 1; object-fit: contain; pointer-events: none; }

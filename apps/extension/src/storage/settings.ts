@@ -4,6 +4,15 @@ import type { ImageFormat, MergeLayout } from '../types/media';
 
 export type CropRatio = 'free' | 'original' | '1:1' | '3:4' | '4:3' | '16:9';
 
+export interface PresetTemplate {
+  id: string;
+  name: string;
+  category: 'image_defaults' | 'merge_pdf' | 'pipelines' | string;
+  payload: Record<string, unknown>;
+  source?: 'local' | 'server';
+  createdAt?: number;
+}
+
 export interface AppSettings {
   enabled: boolean;
   theme: 'system' | 'dark' | 'light';
@@ -46,6 +55,9 @@ export interface AppSettings {
   mergeDefaultGridColumns: number;
 
   profiles: MediaProfile[];
+  localTemplates: PresetTemplate[];
+  disabledTemplateIds: string[];
+  deletedTemplateIds: string[];
   onboardingComplete: boolean;
 }
 
@@ -91,6 +103,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mergeDefaultGridColumns: 2,
 
   profiles: [],
+  localTemplates: [],
+  disabledTemplateIds: [],
+  deletedTemplateIds: [],
   onboardingComplete: false,
 };
 
@@ -119,6 +134,18 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
   merged.mergeDefaultPadding = Math.max(0, Math.min(400, Number(merged.mergeDefaultPadding) || 0));
   merged.mergeDefaultGap = Math.max(0, Math.min(300, Number(merged.mergeDefaultGap) || 0));
   merged.mergeDefaultBorderWidth = Math.max(0, Math.min(24, Number(merged.mergeDefaultBorderWidth) || 0));
+  merged.localTemplates = Array.isArray(merged.localTemplates)
+    ? merged.localTemplates.filter((template: any) => template && typeof template.id === 'string' && typeof template.name === 'string' && typeof template.category === 'string').map((template: any) => ({
+        id: template.id,
+        name: template.name,
+        category: template.category,
+        payload: template.payload && typeof template.payload === 'object' && !Array.isArray(template.payload) ? template.payload : {},
+        source: 'local' as const,
+        createdAt: Number(template.createdAt) || Date.now(),
+      }))
+    : [];
+  merged.disabledTemplateIds = Array.isArray(merged.disabledTemplateIds) ? [...new Set(merged.disabledTemplateIds.filter((id) => typeof id === 'string'))] : [];
+  merged.deletedTemplateIds = Array.isArray(merged.deletedTemplateIds) ? [...new Set(merged.deletedTemplateIds.filter((id) => typeof id === 'string'))] : [];
   merged.profiles = Array.isArray(merged.profiles)
     ? merged.profiles.map((profile: any) => {
         if (Array.isArray(profile.steps)) {
