@@ -19,6 +19,7 @@ export interface AppSettings {
 
   showToolbarLabels: boolean;
   showRotateControls: boolean;
+  toolbarUiVisible: boolean;
   autoOpenMergeWorkspace: boolean;
   toolbarLocked: boolean;
   toolbarOffsetX: number;
@@ -67,6 +68,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   showToolbarLabels: true,
   showRotateControls: true,
+  toolbarUiVisible: true,
   autoOpenMergeWorkspace: false,
   toolbarLocked: false,
   toolbarOffsetX: 0,
@@ -127,6 +129,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
   merged.defaultQuality = Math.max(35, Math.min(100, Number(merged.defaultQuality) || DEFAULT_SETTINGS.defaultQuality));
   merged.minimumQuality = Math.max(20, Math.min(90, Number(merged.minimumQuality) || DEFAULT_SETTINGS.minimumQuality));
   merged.mergeDefaultQuality = Math.max(35, Math.min(100, Number(merged.mergeDefaultQuality) || DEFAULT_SETTINGS.mergeDefaultQuality));
+  merged.toolbarUiVisible = input?.toolbarUiVisible === false ? false : true;
   merged.toolbarLocked = Boolean(merged.toolbarLocked);
   merged.toolbarOffsetX = Math.max(-1200, Math.min(1200, Number(merged.toolbarOffsetX) || 0));
   merged.toolbarOffsetY = Math.max(-1200, Math.min(1200, Number(merged.toolbarOffsetY) || 0));

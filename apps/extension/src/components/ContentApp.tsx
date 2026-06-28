@@ -40,6 +40,18 @@ const IMAGE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
   'removeSpacesByDefault',
   'removeSpecialCharactersByDefault',
 ];
+const MERGE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
+  'mergeDefaultLayout',
+  'mergeDefaultFormat',
+  'mergeDefaultMaxKB',
+  'mergeDefaultQuality',
+  'mergeDefaultGap',
+  'mergeDefaultPadding',
+  'mergeDefaultBorderWidth',
+  'mergeDefaultBorderColor',
+  'mergeDefaultBackground',
+  'mergeDefaultGridColumns',
+];
 
 function clampQualityPercent(value: number | undefined, fallback: number): number {
   const next = Number(value);
@@ -560,19 +572,25 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
   };
 
   const addLocal = async (files: FileList | null) => {
-    if (!files) return;
-    const additions: MergeItem[] = [];
-    for (const file of Array.from(files)) {
-      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-        const pages = await rasterizePdfForMerge(file, file.name, `local:${file.name}:${file.size}`, (current, total) => onToast(`Reading ${file.name}: page ${current}/${total}`));
-        additions.push(...pages);
-      } else if (file.type.startsWith('image/')) {
-        additions.push({ id: createId(), blob: file, name: file.name, rotation: 0, placement: { offsetX: 0, offsetY: 0, scale: 1 }, sourceType: 'image', sourceKey: `local:${file.name}:${file.size}:${file.lastModified}` });
+    if (!files?.length) return;
+    try {
+      const additions: MergeItem[] = [];
+      for (const file of Array.from(files)) {
+        if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+          const pages = await rasterizePdfForMerge(file, file.name, `local:${file.name}:${file.size}`, (current, total) => onToast(`Reading ${file.name}: page ${current}/${total}`));
+          additions.push(...pages);
+        } else if (file.type.startsWith('image/')) {
+          additions.push({ id: createId(), blob: file, name: file.name, rotation: 0, placement: { offsetX: 0, offsetY: 0, scale: 1 }, sourceType: 'image', sourceKey: `local:${file.name}:${file.size}:${file.lastModified}` });
+        }
       }
+      if (!additions.length) return onToast('Choose image or PDF files.', true);
+      const next = [...items, ...additions];
+      onItemsChange(next);
+      if (!selectedId && additions[0]) setSelectedId(additions[0].id);
+      onToast(`${additions.length} item${additions.length === 1 ? '' : 's'} added.`);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : 'Could not add local file.', true);
     }
-    const next = [...items, ...additions];
-    onItemsChange(next);
-    if (!selectedId && additions[0]) setSelectedId(additions[0].id);
   };
 
   const applyMergeTemplate = (templateId: string) => {
@@ -590,6 +608,7 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
     if (typeof payload.mergeDefaultBorderColor === 'string') setBorderColor(payload.mergeDefaultBorderColor);
     if (typeof payload.mergeDefaultBackground === 'string') setBackground(payload.mergeDefaultBackground);
     if (payload.mergeDefaultGridColumns !== undefined) setGridColumns(String(payload.mergeDefaultGridColumns));
+    void saveSettings({ ...settings, ...pickSettingsPatch(payload, MERGE_TEMPLATE_KEYS), defaultMergePresetId: template.id });
     onToast(`${template.name} preset applied.`);
   };
 
@@ -633,7 +652,7 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
         {selected && <div className="ma-selected-controls"><strong>Selected item</strong><div><button onClick={() => setCropItem(selected)}><Icon name="crop" size={15} />Crop</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 270) % 360) as Rotation })}><Icon name="rotate-left" size={15} />Left</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 90) % 360) as Rotation })}><Icon name="rotate-right" size={15} />Right</button></div><label>Zoom <input type="range" min="60" max="160" value={Math.round((selected.placement?.scale ?? 1) * 100)} onChange={(event) => updateItem({ ...selected, placement: { ...(selected.placement ?? { offsetX: 0, offsetY: 0, scale: 1 }), scale: Number(event.target.value) / 100 } })} /></label><button className="ma-reset-position" onClick={() => updateItem({ ...selected, placement: { offsetX: 0, offsetY: 0, scale: 1 } })}>Reset position & zoom</button></div>}
       </aside>
     </div>
-    <div className="ma-workspace-bar"><button className="ma-compact-btn" onClick={() => fileInput.current?.click()}><Icon name="plus" />Add local image/PDF</button><input ref={fileInput} hidden type="file" multiple accept="image/*,application/pdf" onChange={(event) => void addLocal(event.target.files)} /><span>{items.length} item{items.length === 1 ? '' : 's'} in stack · drag cards to reorder</span></div>
+    <div className="ma-workspace-bar"><button className="ma-compact-btn" onClick={() => fileInput.current?.click()}><Icon name="plus" />Add local image/PDF</button><input ref={fileInput} hidden type="file" multiple accept="image/*,.pdf,application/pdf" onChange={(event) => { const input = event.currentTarget; void addLocal(input.files).finally(() => { input.value = ''; }); }} /><span>{items.length} item{items.length === 1 ? '' : 's'} in stack · drag cards to reorder</span></div>
     {items.length ? <div className="ma-merge-list">{items.map((item, index) => <MergeItemCard key={item.id} item={item} index={index} selected={selectedId === item.id} onSelect={() => setSelectedId(item.id)} onChange={updateItem} onCrop={() => setCropItem(item)} onRemove={() => onItemsChange(items.filter((entry) => entry.id !== item.id))} onDragStart={setDragIndex} onDrop={reorder} />)}</div> : <div className="ma-empty">Open an image or PDF and click + Add to merge.</div>}
     {cropItem && <BlobCropEditor item={cropItem} onCancel={() => setCropItem(null)} onConfirm={(crop) => { updateItem({ ...cropItem, crop }); setCropItem(null); }} />}
   </Modal>;
@@ -1109,14 +1128,21 @@ export function ContentApp() {
     void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp');
   };
 
-  const applyImageTemplate = async (templateId: string) => {
+  const applyImageTemplate = async (templateId: string, presetKey?: 'defaultCropPresetId' | 'defaultResizePresetId' | 'defaultCompressPresetId') => {
     if (!settings || !templateId) return;
     const template = imageTemplates.find((item) => item.id === templateId);
     if (!template) return;
-    const next = { ...settings, ...pickSettingsPatch(template.payload, IMAGE_TEMPLATE_KEYS) };
+    const next = { ...settings, ...pickSettingsPatch(template.payload, IMAGE_TEMPLATE_KEYS), ...(presetKey ? { [presetKey]: template.id } : {}) };
     await saveSettings(next as AppSettings);
     toast(`${template.name} preset applied.`);
   };
+
+  useEffect(() => {
+    if (settings?.toolbarUiVisible !== false) return;
+    setQuickPanel(null);
+    setCropMode(false);
+    setPendingPipeline(null);
+  }, [settings?.toolbarUiVisible]);
 
   useEffect(() => () => terminateProcessor(), []);
 
@@ -1129,6 +1155,7 @@ export function ContentApp() {
   const toolbarLeft = Math.max(12, Math.min(innerWidth - 88, viewerRect.left + 12 + toolbarOffset.x));
   const toolbarSpaceBeforeOfficialControls = Math.max(88, innerWidth - toolbarLeft - 380);
   const toolbarMaxWidth = Math.min(Math.max(88, viewerRect.width * 0.56), toolbarSpaceBeforeOfficialControls);
+  const toolbarUiVisible = settings.toolbarUiVisible !== false;
   const hasPipelineRail = media.kind === 'image' && premium && pinnedProfiles.length > 0;
   const rotateButtonSize = 68;
   const rotateIconSize = 42;
@@ -1140,19 +1167,20 @@ export function ContentApp() {
   const cropRect = clipRectToViewport(cropSourceRect);
 
   return <div className="ma-root">
-    {media.kind === 'image' && <PreviewCanvas media={media} transform={transform} />}
-    <div className={`ma-toolbar${settings.showToolbarLabels ? '' : ' icons-only'}`} style={{ top: toolbarTop, left: toolbarLeft, maxWidth: toolbarMaxWidth }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-      <div className={`ma-toolbar-start${hasPipelineRail ? ' with-pipelines' : ''}`}>
+    {toolbarUiVisible && media.kind === 'image' && <PreviewCanvas media={media} transform={transform} />}
+    {!mergeOpen && <div className={`ma-toolbar${settings.showToolbarLabels ? '' : ' icons-only'}${toolbarUiVisible ? '' : ' ui-hidden'}`} style={{ top: toolbarTop, left: toolbarLeft, maxWidth: toolbarMaxWidth }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      <div className={`ma-toolbar-start${toolbarUiVisible && hasPipelineRail ? ' with-pipelines' : ''}`}>
         <div className="ma-toolbar-controls">
           <button className={`ma-toolbar-control${settings.toolbarLocked ? ' disabled' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar to move' : 'Drag toolbar'} disabled={settings.toolbarLocked} onPointerDown={beginToolbarDrag}><Icon name="more" size={15} /></button>
           <button className={`ma-toolbar-control${settings.toolbarLocked ? ' locked' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar' : 'Lock toolbar'} onClick={() => updateToolbarSettings({ toolbarLocked: !settings.toolbarLocked })}><Icon name="lock" size={15} /></button>
+          <button className={`ma-toolbar-control${toolbarUiVisible ? '' : ' muted'}`} title={toolbarUiVisible ? 'Hide Media Assist UI' : 'Show Media Assist UI'} onClick={() => updateToolbarSettings({ toolbarUiVisible: !toolbarUiVisible })}><Icon name={toolbarUiVisible ? 'eye' : 'eye-off'} size={15} /></button>
         </div>
-        {hasPipelineRail && <div className="ma-pipeline-rail">
+        {toolbarUiVisible && hasPipelineRail && <div className="ma-pipeline-rail">
           {visiblePinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{pipelineTag(profile)}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}
           {overflowPinnedProfiles.length > 0 && <select className="ma-profile-select" aria-label="More pipelines" disabled={busy} value="" onChange={(event) => { const profile = overflowPinnedProfiles.find((item) => item.id === event.target.value); event.currentTarget.value = ''; if (profile) void executeProfile(profile); }}><option value="">More</option>{overflowPinnedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>}
         </div>}
       </div>
-      <div className="ma-tool-strip">
+      {toolbarUiVisible && <div className="ma-tool-strip">
         {media.kind === 'image' && <button className="ma-tool-btn" title="Crop" onClick={() => { setCropMode(true); setQuickPanel(null); }}><Icon name="crop" /><span>Crop</span></button>}
         {media.kind === 'image' && <button className="ma-tool-btn" title={premium ? 'Resize' : 'Resize with saved defaults and download'} disabled={busy} onClick={() => premium ? setQuickPanel((current) => current === 'resize' ? null : 'resize') : downloadWithDefaultResize()}><Icon name="resize" /><span>Resize</span></button>}
         <button className="ma-tool-btn" title={media.kind === 'pdf' ? 'Compress PDF' : 'Compress and download'} onClick={() => setQuickPanel((current) => current === (media.kind === 'pdf' ? 'pdf-compress' : 'compress') ? null : (media.kind === 'pdf' ? 'pdf-compress' : 'compress'))}><Icon name="compress" /><span>{media.kind === 'pdf' ? 'Compress PDF' : 'Compress'}</span></button>
@@ -1161,15 +1189,15 @@ export function ContentApp() {
           {mergeItems.length > 0 && !mergeOpen && <button className="ma-tool-btn stack" title="Open merge stack" onClick={() => setMergeOpen(true)}><Icon name="merge" /><span>Stack</span><b className="ma-count">{mergeItems.length}</b></button>}
         </div>}
         <button className="ma-tool-btn" title="Download with saved defaults" disabled={busy} onClick={() => void downloadCurrent()}><Icon name="download" /><span>Download</span></button>
-      </div>
-    </div>
+      </div>}
+    </div>}
 
-    {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: rotateLeft, top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={rotateIconSize} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: rotateRight, top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={rotateIconSize} /><span>Rotate right</span></button></>}
+    {!mergeOpen && toolbarUiVisible && media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: rotateLeft, top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={rotateIconSize} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: rotateRight, top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={rotateIconSize} /><span>Rotate right</span></button></>}
 
-    {quickPanel === 'resize' && media.kind === 'image' && premium && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} busy={busy} templates={resizeTemplates} defaultTemplateId={settings.defaultResizePresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onApply={(resize) => void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'compress' && media.kind === 'image' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} defaultTemplateId={settings.defaultCompressPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality, transform, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
-    {quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
-    {cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} sourceRect={cropSourceRect} initial={transform.crop} templates={cropTemplates} defaultTemplateId={settings.defaultCropPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId)} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
+    {!mergeOpen && toolbarUiVisible && quickPanel === 'resize' && media.kind === 'image' && premium && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} busy={busy} templates={resizeTemplates} defaultTemplateId={settings.defaultResizePresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultResizePresetId')} onApply={(resize) => void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {!mergeOpen && toolbarUiVisible && quickPanel === 'compress' && media.kind === 'image' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} defaultTemplateId={settings.defaultCompressPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultCompressPresetId')} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality, transform, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {!mergeOpen && toolbarUiVisible && quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
+    {!mergeOpen && toolbarUiVisible && cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} sourceRect={cropSourceRect} initial={transform.crop} templates={cropTemplates} defaultTemplateId={settings.defaultCropPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultCropPresetId')} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
     {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} templates={mergeTemplates} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
     <div className="ma-toast-stack">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
   </div>;

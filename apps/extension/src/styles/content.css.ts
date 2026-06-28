@@ -12,7 +12,7 @@ button, input, select { font: inherit; }
 .ma-tool-btn:disabled, .ma-profile-btn:disabled, .ma-toolbar-control:disabled, .ma-profile-select:disabled { opacity: .45; cursor: wait; }
 .ma-toolbar.icons-only .ma-tool-btn { width: 23px; padding: 0; }
 .ma-toolbar.icons-only .ma-tool-btn > span { display: none; }
-.ma-toolbar-start { width: 82px; padding: 4px; display: grid; gap: 4px; flex: none; border: 1px solid rgba(255,255,255,.055); border-radius: 12px; background: rgba(17,27,33,.18); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); }
+.ma-toolbar-start { width: 86px; padding: 4px; display: grid; gap: 4px; flex: none; border: 1px solid rgba(255,255,255,.055); border-radius: 12px; background: rgba(17,27,33,.18); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); }
 .ma-toolbar-controls { display: inline-flex; align-items: center; gap: 3px; }
 .ma-tool-strip { min-height: 39px; padding: 4px; display: inline-flex; align-items: center; gap: 2px; flex: none; border: 1px solid rgba(255,255,255,.055); border-radius: 11px; background: rgba(17,27,33,.14); box-shadow: 0 1px 7px rgba(0,0,0,.12); backdrop-filter: blur(2px); }
 .ma-pipeline-rail { display: grid; gap: 3px; width: 72px; max-height: 132px; overflow-y: auto; scrollbar-width: none; }
@@ -22,6 +22,9 @@ button, input, select { font: inherit; }
 .ma-toolbar-control { width: 23px; padding: 0; cursor: grab; }
 .ma-toolbar-control.locked { border-color: rgba(0,168,132,.5); color: #e9fff9; background: #0c6f60; cursor: pointer; }
 .ma-toolbar-control.disabled { cursor: not-allowed; }
+.ma-toolbar-control.muted { border-color: rgba(255,255,255,.2); color: #ffdadb; background: #4b2529; cursor: pointer; }
+.ma-toolbar.ui-hidden { max-width: 92px !important; }
+.ma-toolbar.ui-hidden .ma-toolbar-start { width: 86px; }
 .ma-button-group { min-height: 24px; padding: 0; display: inline-flex; align-items: center; gap: 1px; flex: none; border: 0; border-radius: 8px; background: transparent; }
 .ma-button-group .ma-tool-btn { height: 23px; border-color: rgba(0,168,132,.35); background: #1f2c33; }
 .ma-button-group .ma-tool-btn:hover { background: #263942; }
