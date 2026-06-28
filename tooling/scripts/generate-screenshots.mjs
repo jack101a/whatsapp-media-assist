@@ -56,7 +56,7 @@ async function mockChrome(page, storeSeed = initialStore) {
         sendMessage: async (request) => {
           if (request?.type === 'billing:get-status') return { ok: true, data: { signedIn: true, email: 'owner@example.com', premium: true, deviceId: 'screenshot-device-0001', entitlement: { subscriptionExpiresAt: Date.now() + 31_536_000_000 } } };
 if (request?.type === 'billing:verify-online') return { ok: true, data: { premium: true } };
-          if (request?.type === 'billing:get-product') return { ok: true, data: { name: 'Media Assist Pro', duration_days: 365, prices: [{ currency: 'INR', amount_minor: 50000, label: '₹500 / 365 days' }, { currency: 'USD', amount_minor: 499, label: '$4.99 / 365 days' }] } };
+          if (request?.type === 'billing:get-product') return { ok: true, data: { name: 'WhatsApp Media Assist Pro', duration_days: 365, prices: [{ currency: 'INR', amount_minor: 50000, label: 'INR 500 / 365 days' }, { currency: 'USD', amount_minor: 499, label: '$4.99 / 365 days' }] } };
           return { ok: false, error: 'Screenshot action unavailable' };
         },
       },

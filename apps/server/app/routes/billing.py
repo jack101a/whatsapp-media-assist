@@ -72,7 +72,7 @@ def product(db: Session = Depends(get_db), settings: Settings = Depends(get_sett
         prices.append(ProductPrice(currency='INR', amount_minor=price_inr, label=f'₹{price_inr / 100:g} / {duration} days'))
     if settings.enable_usd_checkout:
         prices.append(ProductPrice(currency='USD', amount_minor=price_usd, label=f'${price_usd / 100:.2f} / {duration} days'))
-    return ProductResponse(name=plan.name if plan else 'Media Assist Pro', duration_days=duration, prices=prices)
+    return ProductResponse(name=plan.name if plan else 'WhatsApp Media Assist Pro', duration_days=duration, prices=prices)
 
 
 @router.post('/v1/billing/checkout', response_model=CheckoutResponse)
@@ -121,19 +121,19 @@ def hosted_checkout(reference_id: str, db: Session = Depends(get_db), settings: 
     if not checkout:
         raise HTTPException(status_code=404)
     if checkout.status == 'paid':
-        return _checkout_not_available('Payment complete', 'Your Media Assist Pro plan is already active. Return to the extension and click Sync now.')
+        return _checkout_not_available('Payment complete', 'Your WhatsApp Media Assist Pro plan is already active. Return to the extension and click Sync now.')
     if as_utc(checkout.expires_at) <= utcnow():
-        return _checkout_not_available('Checkout expired', 'Create a new checkout from Media Assist Settings and try again.')
+        return _checkout_not_available('Checkout expired', 'Create a new checkout from WhatsApp Media Assist Settings and try again.')
 
     plan = db.get(Plan, checkout.plan_id) if checkout.plan_id else None
     user = db.get(User, checkout.user_id)
-    plan_name = plan.name if plan else 'Media Assist Pro'
+    plan_name = plan.name if plan else 'WhatsApp Media Assist Pro'
     amount_label = f'{checkout.currency} {checkout.amount_minor / 100:.2f}'
     options = {
         'key': settings.razorpay_key_id,
         'amount': checkout.amount_minor,
         'currency': checkout.currency,
-        'name': 'Media Assist',
+        'name': 'WhatsApp Media Assist',
         'description': plan_name,
         'order_id': checkout.razorpay_link_id,
         'prefill': {'email': user.email if user else ''},
@@ -150,7 +150,7 @@ def hosted_checkout(reference_id: str, db: Session = Depends(get_db), settings: 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Pay Media Assist</title>
+  <title>Pay WhatsApp Media Assist</title>
   <style>
     :root {{ color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
     body {{ margin:0; min-height:100vh; display:grid; place-items:center; background:#f5f7f8; color:#17212b; }}
@@ -174,7 +174,7 @@ def hosted_checkout(reference_id: str, db: Session = Depends(get_db), settings: 
 </head>
 <body>
   <main>
-    <div class="brand"><div class="mark">MA</div><span>Media Assist</span></div>
+    <div class="brand"><div class="mark">WA</div><span>WhatsApp Media Assist</span></div>
     <h1>Complete payment</h1>
     <p>Razorpay Checkout will open automatically. Keep this tab open until your plan is activated.</p>
     <div class="summary">
@@ -195,7 +195,7 @@ def hosted_checkout(reference_id: str, db: Session = Depends(get_db), settings: 
       statusEl.className = className;
     }}
     async function verifyPayment(response) {{
-      setStatus("Verifying payment with Media Assist...");
+      setStatus("Verifying payment with WhatsApp Media Assist...");
       payButton.disabled = true;
       const result = await fetch(`/checkout/${{encodeURIComponent(referenceId)}}/verify`, {{
         method: "POST",
@@ -328,7 +328,7 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db), sett
 
 @router.get('/payment-complete', response_class=HTMLResponse)
 def payment_complete() -> str:
-    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Media Assist payment</title><style>body{font:16px system-ui;background:#f5f7f8;color:#1f2937;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:32px;max-width:460px;box-shadow:0 16px 50px #0001}h1{margin-top:0;color:#087a66}</style></head><body><main class="card"><h1>Payment submitted</h1><p>Return to Media Assist Settings and click <b>Refresh status</b>. Activation happens after Razorpay confirms the payment.</p></main></body></html>'''
+    return '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>WhatsApp Media Assist payment</title><style>body{font:16px system-ui;background:#f5f7f8;color:#1f2937;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:32px;max-width:460px;box-shadow:0 16px 50px #0001}h1{margin-top:0;color:#087a66}</style></head><body><main class="card"><h1>Payment submitted</h1><p>Return to WhatsApp Media Assist Settings and click <b>Refresh status</b>. Activation happens after Razorpay confirms the payment.</p></main></body></html>'''
 
 
 @router.get('/dev/pay/{reference_id}', response_class=HTMLResponse)

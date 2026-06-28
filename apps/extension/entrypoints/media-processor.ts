@@ -175,7 +175,7 @@ async function openPdf(blob: Blob, pdfWorkerUrl: string) {
   const pdfjs = await loadPdfjs();
   pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   const bytes = new Uint8Array(await blob.arrayBuffer());
-  return pdfjs.getDocument({ data: bytes, useWorkerFetch: false, disableAutoFetch: true, disableStream: true, useWasm: false }).promise;
+  return pdfjs.getDocument({ data: bytes, useWorkerFetch: false, disableAutoFetch: true, disableStream: true, useWasm: false, verbosity: pdfjs.VerbosityLevel.ERRORS }).promise;
 }
 
 async function rasterPagesForCompression(blob: Blob, pdfWorkerUrl: string, id: string): Promise<RasterPdfPage[]> {

@@ -23,7 +23,7 @@ function Popup() {
   return <main className="popup">
     <header className="brand">
       <img src="/icons/icon-48.png" alt="" />
-      <div><strong>Media Assist</strong><span>WhatsApp Web media tools</span></div>
+      <div><strong>WhatsApp Media Assist</strong><span>WhatsApp Web media tools</span></div>
     </header>
 
     <button className="toggle-row" type="button" onClick={() => void toggle()} aria-pressed={settings.enabled}>

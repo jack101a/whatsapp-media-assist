@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     environment: str = 'development'
-    app_name: str = 'Media Assist'
+    app_name: str = 'WhatsApp Media Assist'
     api_base_url: HttpUrl = 'http://localhost:8787'
     frontend_success_url: HttpUrl = 'http://localhost:8787/payment-complete'
     database_url: str = 'sqlite:////data/media-assist.db'
@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     razorpay_api_url: str = 'https://api.razorpay.com/v1'
 
     brevo_api_key: str = ''
-    brevo_sender_email: EmailStr = 'no-reply@002529.xyz'
-    brevo_sender_name: str = 'Media Assist'
+    brevo_sender_email: EmailStr = 'no-reply.mediaassit@002529.xyz'
+    brevo_sender_name: str = 'WhatsApp Media Assist'
     brevo_sandbox: bool = False
 
     allowed_origins: str = ''

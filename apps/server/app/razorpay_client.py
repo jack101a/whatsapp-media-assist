@@ -41,7 +41,7 @@ class RazorpayClient:
             'currency': currency,
             'accept_partial': False,
             'reference_id': reference_id,
-            'description': 'Media Assist Pro — 365 days',
+            'description': 'WhatsApp Media Assist Pro - 365 days',
             'customer': {'email': email},
             'notify': {'email': False, 'sms': False},
             'reminder_enable': False,

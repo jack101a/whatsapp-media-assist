@@ -92,7 +92,7 @@ class ProductPrice(BaseModel):
 
 
 class ProductResponse(BaseModel):
-    name: str = 'Media Assist Pro'
+    name: str = 'WhatsApp Media Assist Pro'
     duration_days: int
     prices: list[ProductPrice]
 
@@ -206,4 +206,3 @@ class StatsResponse(BaseModel):
     db_size_bytes: int
     wal_size_bytes: int
     last_backup_at: datetime | None = None
-

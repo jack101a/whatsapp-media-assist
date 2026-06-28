@@ -702,6 +702,7 @@ export function ContentApp() {
     }
 
     let frame = 0;
+    let scanTimer: number | null = null;
     let lastScan = 0;
     let graceTimer: number | null = null;
 
@@ -745,10 +746,17 @@ export function ContentApp() {
 
     const scan = () => {
       frame = 0;
+      if (scanTimer !== null) {
+        window.clearTimeout(scanTimer);
+        scanTimer = null;
+      }
       if (document.hidden) return;
       const now = performance.now();
-      const scanInterval = mediaRef.current ? 90 : 600;
-      if (now - lastScan < scanInterval) return;
+      const scanInterval = mediaRef.current ? 60 : 120;
+      if (now - lastScan < scanInterval) {
+        scanTimer = window.setTimeout(schedule, scanInterval - (now - lastScan));
+        return;
+      }
       lastScan = now;
 
       // Search the known viewer first. A full document scan is only needed
@@ -771,10 +779,10 @@ export function ContentApp() {
         graceTimer = window.setTimeout(() => {
           graceTimer = null;
           schedule();
-        }, 1650);
+        }, 1000);
       }
-      // Keep the session alive through a short replacement to prevent blinking.
-      if (now - missingSince.current < 1600) return;
+      // Keep the session alive through a brief replacement to prevent blinking.
+      if (now - missingSince.current < 960) return;
 
       resetViewerTools();
       missingSince.current = null;
@@ -810,6 +818,7 @@ export function ContentApp() {
       window.removeEventListener('keydown', schedule, true);
       document.removeEventListener('visibilitychange', schedule);
       if (frame) window.cancelAnimationFrame(frame);
+      if (scanTimer !== null) window.clearTimeout(scanTimer);
       if (graceTimer !== null) window.clearTimeout(graceTimer);
       if (inactiveClearTimer.current) window.clearTimeout(inactiveClearTimer.current);
     };
@@ -1173,7 +1182,7 @@ export function ContentApp() {
         <div className="ma-toolbar-controls">
           <button className={`ma-toolbar-control${settings.toolbarLocked ? ' disabled' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar to move' : 'Drag toolbar'} disabled={settings.toolbarLocked} onPointerDown={beginToolbarDrag}><Icon name="more" size={15} /></button>
           <button className={`ma-toolbar-control${settings.toolbarLocked ? ' locked' : ''}`} title={settings.toolbarLocked ? 'Unlock toolbar' : 'Lock toolbar'} onClick={() => updateToolbarSettings({ toolbarLocked: !settings.toolbarLocked })}><Icon name="lock" size={15} /></button>
-          <button className={`ma-toolbar-control${toolbarUiVisible ? '' : ' muted'}`} title={toolbarUiVisible ? 'Hide Media Assist UI' : 'Show Media Assist UI'} onClick={() => updateToolbarSettings({ toolbarUiVisible: !toolbarUiVisible })}><Icon name={toolbarUiVisible ? 'eye' : 'eye-off'} size={15} /></button>
+          <button className={`ma-toolbar-control${toolbarUiVisible ? '' : ' muted'}`} title={toolbarUiVisible ? 'Hide WhatsApp Media Assist UI' : 'Show WhatsApp Media Assist UI'} onClick={() => updateToolbarSettings({ toolbarUiVisible: !toolbarUiVisible })}><Icon name={toolbarUiVisible ? 'eye' : 'eye-off'} size={15} /></button>
         </div>
         {toolbarUiVisible && hasPipelineRail && <div className="ma-pipeline-rail">
           {visiblePinnedProfiles.map((profile) => <button key={profile.id} className="ma-profile-btn" title={profile.name} disabled={busy} onClick={() => void executeProfile(profile)}><span>{pipelineTag(profile)}</span>{profile.inputCount > 1 && <b>{profileSessions[profile.id]?.items.length ?? 0}/{profile.inputCount}</b>}</button>)}

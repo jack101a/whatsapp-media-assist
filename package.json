@@ -1,12 +1,13 @@
 {
-  "name": "media-assist-monorepo",
+  "name": "whatsapp-media-assist-monorepo",
+  "version": "0.0.1",
   "private": true,
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "dev:extension": "pnpm --filter media-assist-extension dev",
-    "build:extension": "pnpm --filter media-assist-extension build",
+    "dev:extension": "pnpm --filter whatsapp-media-assist-extension dev",
+    "build:extension": "pnpm --filter whatsapp-media-assist-extension build",
     "dev:server": "cd apps/server && uvicorn app.main:app --reload",
     "test:server": "cd apps/server && pytest tests/"
   }

@@ -59,7 +59,7 @@ function ensureFrame(): Promise<void> {
   frameNonce = createId();
   frame = document.createElement('iframe');
   frame.src = `${browser.runtime.getURL('/processor.html' as never)}#${encodeURIComponent(frameNonce)}`;
-  frame.title = 'Media Assist local processor';
+  frame.title = 'WhatsApp Media Assist local processor';
   frame.setAttribute('aria-hidden', 'true');
   Object.assign(frame.style, {
     position: 'fixed',

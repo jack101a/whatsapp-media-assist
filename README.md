@@ -1,6 +1,6 @@
-# Media Assist for WhatsApp Web
+# WhatsApp Media Assist
 
-Media Assist adds lightweight image and PDF tools only when media is opened in WhatsApp Web.
+WhatsApp Media Assist adds lightweight image and PDF tools only when media is opened in WhatsApp Web.
 
 ## Features
 
@@ -17,7 +17,7 @@ Media Assist adds lightweight image and PDF tools only when media is opened in W
 
 ## Privacy
 
-Images, PDFs, chats, contacts, filenames and WhatsApp URLs stay on the device. The server receives only account, device, payment, entitlement, pipeline and extension-preference data.
+Images, PDFs, chats, contacts, filenames and WhatsApp URLs stay on the device. The server receives only account, device, payment, entitlement, pipeline and extension-preference data. WhatsApp Media Assist is independent and is not affiliated with WhatsApp LLC or Meta Platforms, Inc.
 
 ## Architecture
 

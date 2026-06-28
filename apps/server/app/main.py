@@ -14,7 +14,7 @@ from .routes import account, admin, auth, billing, admin_dashboard
 from .backups import start_backup_scheduler, stop_backup_scheduler
 
 settings = get_settings()
-app = FastAPI(title='Media Assist Licensing API', version='1.0.0', docs_url='/docs' if settings.environment != 'production' else None, redoc_url=None)
+app = FastAPI(title='WhatsApp Media Assist Licensing API', version='1.0.0', docs_url='/docs' if settings.environment != 'production' else None, redoc_url=None)
 
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -75,4 +75,3 @@ async def unhandled_exception(_, exc: Exception):
     if settings.environment != 'production':
         return JSONResponse(status_code=500, content={'detail': str(exc)})
     return JSONResponse(status_code=500, content={'detail': 'Internal server error'})
-

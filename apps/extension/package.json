@@ -1,6 +1,6 @@
 {
-  "name": "media-assist-extension",
-  "version": "1.4.0",
+  "name": "whatsapp-media-assist-extension",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {

@@ -198,11 +198,11 @@ async function openPdfInFrame(blob: Blob, pdfWorkerUrl: string) {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return pdfjs.getDocument({
     data: bytes,
-    disableWorker: true,
     useWorkerFetch: false,
     disableAutoFetch: true,
     disableStream: true,
     useWasm: false,
+    verbosity: pdfjs.VerbosityLevel.ERRORS,
   } as never).promise;
 }
 

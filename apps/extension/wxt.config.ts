@@ -7,14 +7,14 @@ export default defineConfig({
   srcDir: '.',
   manifestVersion: 3,
   manifest: ({ browser }) => ({
-    name: 'Media Assist for WhatsApp Web',
-    short_name: 'Media Assist',
+    name: 'WhatsApp Media Assist',
+    short_name: 'WA Media Assist',
     description: 'Crop, resize, compress and merge opened WhatsApp Web media locally. Pro pipelines automate repeated workflows.',
-    version: '1.4.0',
+    version: '0.0.1',
     permissions: ['storage', 'alarms'],
     host_permissions: ['https://web.whatsapp.com/*', `${API_ORIGIN}/*`],
     action: {
-      default_title: 'Media Assist',
+      default_title: 'WhatsApp Media Assist',
       default_popup: 'popup.html',
     },
     web_accessible_resources: [{
