@@ -36,8 +36,11 @@ export default defineConfig({
         id: 'media-assist@002529.xyz',
         strict_min_version: '140.0',
         data_collection_permissions: {
-          required: ['personallyIdentifyingInfo', 'authenticationInfo', 'financialAndPaymentInfo'],
+          required: ['personallyIdentifyingInfo', 'authenticationInfo'],
         },
+      },
+      gecko_android: {
+        strict_min_version: '142.0',
       },
     } : undefined,
   }),

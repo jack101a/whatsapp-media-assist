@@ -113,6 +113,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const SETTINGS_KEY = 'mediaAssistSettings';
 
+const LEGACY_IMAGE_TEMPLATE_LEAKS = [
+  { filename: 'ssc_photo_{datetime}', width: 160, height: 200 },
+  { filename: 'ssc_sign_{datetime}', width: 256, height: 64 },
+  { filename: 'pan_photo_{datetime}', width: 213, height: 213 },
+  { filename: 'us_visa_{datetime}', width: 600, height: 600 },
+];
+
 function normalizeLayout(value: unknown): MergeLayout {
   if (value === 'horizontal' || value === 'grid') return value;
   return 'vertical';
@@ -125,6 +132,13 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
   if (input?.defaultQuality === 92) merged.defaultQuality = DEFAULT_SETTINGS.defaultQuality;
   if (input?.mergeDefaultFormat === 'pdf') merged.mergeDefaultFormat = DEFAULT_SETTINGS.mergeDefaultFormat;
   if (input?.mergeDefaultMaxKB === 500) merged.mergeDefaultMaxKB = DEFAULT_SETTINGS.mergeDefaultMaxKB;
+  if (LEGACY_IMAGE_TEMPLATE_LEAKS.some((template) => (
+    merged.defaultFilenameTemplate === template.filename
+    && merged.defaultWidth === template.width
+    && merged.defaultHeight === template.height
+  ))) {
+    merged.defaultFilenameTemplate = DEFAULT_SETTINGS.defaultFilenameTemplate;
+  }
   merged.mergeDefaultLayout = normalizeLayout(input?.mergeDefaultLayout);
   merged.defaultQuality = Math.max(35, Math.min(100, Number(merged.defaultQuality) || DEFAULT_SETTINGS.defaultQuality));
   merged.minimumQuality = Math.max(20, Math.min(90, Number(merged.minimumQuality) || DEFAULT_SETTINGS.minimumQuality));

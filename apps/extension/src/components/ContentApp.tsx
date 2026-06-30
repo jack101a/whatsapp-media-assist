@@ -24,21 +24,30 @@ interface PendingPipeline { profile: MediaProfile; source: Blob }
 interface ServerTemplate { id: string; name: string; category: string; payload: Partial<AppSettings> }
 
 const EMPTY_TRANSFORM: TransformState = { rotation: 0 };
-const IMAGE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
+const STANDARD_IMAGE_FORMAT: ImageFormat = 'jpeg';
+const STANDARD_IMAGE_QUALITY = 0.96;
+const STANDARD_MINIMUM_QUALITY = 0.9;
+const FILENAME_TEMPLATE_KEYS: (keyof AppSettings)[] = [
   'defaultFilenameTemplate',
+  'removeSpacesByDefault',
+  'removeSpecialCharactersByDefault',
+];
+const CROP_TEMPLATE_KEYS: (keyof AppSettings)[] = [
+  'defaultCropRatio',
+];
+const RESIZE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
+  'defaultWidth',
+  'defaultHeight',
+  'allowUpscale',
+  'defaultResizeFit',
+];
+const COMPRESS_TEMPLATE_KEYS: (keyof AppSettings)[] = [
   'defaultFormat',
   'defaultMaxKB',
   'defaultMinKB',
-  'defaultWidth',
-  'defaultHeight',
   'defaultQuality',
   'minimumQuality',
   'allowDimensionReduction',
-  'allowUpscale',
-  'defaultResizeFit',
-  'defaultCropRatio',
-  'removeSpacesByDefault',
-  'removeSpecialCharactersByDefault',
 ];
 const MERGE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
   'mergeDefaultLayout',
@@ -77,6 +86,13 @@ function pickSettingsPatch(payload: Partial<AppSettings>, keys: (keyof AppSettin
     if (payload[key] !== undefined) (patch as Record<string, unknown>)[key] = payload[key];
     return patch;
   }, {});
+}
+
+function templateKeysForPreset(presetKey?: 'defaultCropPresetId' | 'defaultResizePresetId' | 'defaultCompressPresetId'): (keyof AppSettings)[] {
+  if (presetKey === 'defaultCropPresetId') return CROP_TEMPLATE_KEYS;
+  if (presetKey === 'defaultResizePresetId') return RESIZE_TEMPLATE_KEYS;
+  if (presetKey === 'defaultCompressPresetId') return COMPRESS_TEMPLATE_KEYS;
+  return FILENAME_TEMPLATE_KEYS;
 }
 
 function useSettingsState() {
@@ -950,20 +966,21 @@ export function ContentApp() {
         setTransform(EMPTY_TRANSFORM);
         return;
       }
-      const format = formatOverride ?? settings.defaultFormat;
+      const isCompressionAction = maxKB !== undefined || formatOverride !== undefined || qualityOverride !== undefined;
+      const format = formatOverride ?? STANDARD_IMAGE_FORMAT;
       const result = await processImage(source, {
         rotation: transformOverride.rotation,
         flipX: false,
         flipY: false,
         crop: transformOverride.crop,
-        resize: transformOverride.resize ?? (settings.defaultWidth || settings.defaultHeight ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined),
+        resize: transformOverride.resize,
         format,
         compression: {
-          minBytes: kbToBytes(settings.defaultMinKB),
-          maxBytes: kbToBytes(maxKB ?? settings.defaultMaxKB),
-          preferredQuality: clampQualityPercent(qualityOverride, settings.defaultQuality) / 100,
-          minimumQuality: settings.minimumQuality / 100,
-          allowDimensionReduction: settings.allowDimensionReduction,
+          minBytes: isCompressionAction && maxKB !== undefined ? kbToBytes(settings.defaultMinKB) : undefined,
+          maxBytes: isCompressionAction ? kbToBytes(maxKB) : undefined,
+          preferredQuality: isCompressionAction ? clampQualityPercent(qualityOverride, settings.defaultQuality) / 100 : STANDARD_IMAGE_QUALITY,
+          minimumQuality: isCompressionAction ? settings.minimumQuality / 100 : STANDARD_MINIMUM_QUALITY,
+          allowDimensionReduction: isCompressionAction ? settings.allowDimensionReduction : false,
         },
         background: '#ffffff',
       });
@@ -988,7 +1005,7 @@ export function ContentApp() {
     setBusy(true);
     try {
       const source = await captureActiveMedia(media);
-      const result = await compressPdfLocally(source, kbToBytes(maxKB ?? settings.defaultMaxKB), clampQualityPercent(qualityOverride, settings.defaultQuality) / 100, (current, total, note) => {
+      const result = await compressPdfLocally(source, kbToBytes(maxKB), clampQualityPercent(qualityOverride, settings.defaultQuality) / 100, (current, total, note) => {
         if (current === 1 || current === total) toast(note);
       });
       const filename = filenameMode === 'whatsapp'
@@ -1170,7 +1187,7 @@ export function ContentApp() {
     if (!settings || !templateId) return;
     const template = imageTemplates.find((item) => item.id === templateId);
     if (!template) return;
-    const next = { ...settings, ...pickSettingsPatch(template.payload, IMAGE_TEMPLATE_KEYS), ...(presetKey ? { [presetKey]: template.id } : {}) };
+    const next = { ...settings, ...pickSettingsPatch(template.payload, templateKeysForPreset(presetKey)), ...(presetKey ? { [presetKey]: template.id } : {}) };
     await saveSettings(next as AppSettings);
     toast(`${template.name} preset applied.`);
   };
