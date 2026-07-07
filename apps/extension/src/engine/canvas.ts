@@ -137,6 +137,23 @@ function calculateResize(sourceWidth: number, sourceHeight: number, settings?: R
 }
 
 export function resizeCanvas(source: HTMLCanvasElement, settings?: ResizeSettings): HTMLCanvasElement {
+  const requestedWidth = settings?.width && settings.width > 0 ? settings.width : undefined;
+  const requestedHeight = settings?.height && settings.height > 0 ? settings.height : undefined;
+  if (settings && requestedWidth && requestedHeight) {
+    const output = createCanvas(requestedWidth, requestedHeight);
+    const context = get2d(output);
+    if (settings.fit === 'stretch') {
+      context.drawImage(source, 0, 0, requestedWidth, requestedHeight);
+      return output;
+    }
+    const scale = settings.fit === 'cover'
+      ? Math.max(requestedWidth / source.width, requestedHeight / source.height)
+      : Math.min(requestedWidth / source.width, requestedHeight / source.height);
+    const drawWidth = Math.max(1, Math.round(source.width * scale));
+    const drawHeight = Math.max(1, Math.round(source.height * scale));
+    context.drawImage(source, (requestedWidth - drawWidth) / 2, (requestedHeight - drawHeight) / 2, drawWidth, drawHeight);
+    return output;
+  }
   const target = calculateResize(source.width, source.height, settings);
   if (target.width === source.width && target.height === source.height) return source;
   const output = createCanvas(target.width, target.height);
@@ -163,75 +180,105 @@ export function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, qualit
 }
 
 const mimeFor = (format: ImageFormat): string => `image/${format}`;
+const LOWEST_BROWSER_QUALITY = 0.05;
+
+function dimensionScaleForTarget(currentBytes: number, maxBytes: number): number {
+  if (currentBytes <= 0 || maxBytes <= 0) return 0.88;
+  return Math.max(0.45, Math.min(0.9, Math.sqrt(maxBytes / currentBytes) * 0.96));
+}
+
+async function encodeLossyToRange(
+  canvas: HTMLCanvasElement,
+  format: ImageFormat,
+  minBytes: number | undefined,
+  maxBytes: number | undefined,
+  preferredQuality: number,
+): Promise<{ blob: Blob; quality: number; overMax: boolean }> {
+  const mime = mimeFor(format);
+  const preferred = Math.max(LOWEST_BROWSER_QUALITY, Math.min(1, preferredQuality || 0.9));
+
+  // Early-exit: check if preferred quality works perfectly
+  const preferredBlob = await canvasToBlob(canvas, mime, preferred);
+  const fitsMax = !maxBytes || preferredBlob.size <= maxBytes;
+  const fitsMin = !minBytes || preferredBlob.size >= minBytes;
+  if (fitsMax && fitsMin) {
+    return { blob: preferredBlob, quality: preferred, overMax: false };
+  }
+
+  let low = LOWEST_BROWSER_QUALITY;
+  let high = preferred;
+  let bestBlob = await canvasToBlob(canvas, mime, low);
+  let bestQuality = low;
+
+  if (maxBytes && bestBlob.size > maxBytes) {
+    return { blob: bestBlob, quality: bestQuality, overMax: true };
+  }
+
+  // 8 iterations give ~1/256 precision — more than sufficient for file-size targeting.
+  for (let index = 0; index < 8; index += 1) {
+    const quality = (low + high) / 2;
+    const candidate = await canvasToBlob(canvas, mime, quality);
+    if (!maxBytes || candidate.size <= maxBytes) {
+      bestBlob = candidate;
+      bestQuality = quality;
+      low = quality;
+    } else {
+      high = quality;
+    }
+  }
+
+  if (minBytes && bestBlob.size < minBytes && bestQuality < 1) {
+    low = bestQuality;
+    high = 1;
+    // 6 iterations are sufficient to find the minimum size floor.
+    for (let index = 0; index < 6; index += 1) {
+      const quality = (low + high) / 2;
+      const candidate = await canvasToBlob(canvas, mime, quality);
+      if (!maxBytes || candidate.size <= maxBytes) {
+        bestBlob = candidate;
+        bestQuality = quality;
+        low = quality;
+      } else {
+        high = quality;
+      }
+    }
+  }
+
+  return { blob: bestBlob, quality: bestQuality, overMax: Boolean(maxBytes && bestBlob.size > maxBytes) };
+}
 
 async function encodeToLimit(
   initial: HTMLCanvasElement,
   format: ImageFormat,
   compression: CompressionSettings,
-): Promise<{ blob: Blob; canvas: HTMLCanvasElement; quality?: number; warnings: string[] }> {
+): Promise<{ blob: Blob; canvas: HTMLCanvasElement; quality?: number; warnings: string[]; sizeUnreachable?: boolean }> {
   const warnings: string[] = [];
   const maxBytes = compression.maxBytes;
   const minBytes = compression.minBytes;
   let working = initial;
 
   if (format === 'png') {
-    let blob = await canvasToBlob(working, 'image/png');
-    let attempts = 0;
-    while (maxBytes && blob.size > maxBytes && compression.allowDimensionReduction && attempts < 10) {
-      const next = scaleCanvas(working, 0.88);
-      if (working !== initial) {
-        working.width = 1;
-        working.height = 1;
-      }
-      working = next;
-      blob = await canvasToBlob(working, 'image/png');
-      attempts += 1;
+    const blob = await canvasToBlob(working, 'image/png');
+    let sizeUnreachable = false;
+    if (maxBytes && blob.size > maxBytes) {
+      warnings.push('PNG could not reach the requested size without further dimension loss.');
+      sizeUnreachable = true;
     }
-    if (maxBytes && blob.size > maxBytes) warnings.push('PNG could not reach the requested size without further dimension loss.');
-    if (minBytes && blob.size < minBytes) warnings.push('The output is smaller than the requested minimum; no padding was added.');
-    return { blob, canvas: working, warnings };
+    return { blob, canvas: working, warnings, sizeUnreachable };
   }
 
-  const preferred = Math.max(compression.minimumQuality, Math.min(1, compression.preferredQuality));
-  let dimensionsAttempt = 0;
-  while (true) {
-    let low = compression.minimumQuality;
-    let high = preferred;
-    let bestBlob = await canvasToBlob(working, mimeFor(format), low);
-    let bestQuality = low;
-
-    if (!maxBytes || bestBlob.size <= maxBytes) {
-      for (let index = 0; index < 8; index += 1) {
-        const quality = (low + high) / 2;
-        const candidate = await canvasToBlob(working, mimeFor(format), quality);
-        if (!maxBytes || candidate.size <= maxBytes) {
-          bestBlob = candidate;
-          bestQuality = quality;
-          low = quality;
-        } else {
-          high = quality;
-        }
-      }
-
-      if (minBytes && bestBlob.size < minBytes && bestQuality >= preferred - 0.01) {
-        warnings.push('The output is smaller than the requested minimum; quality is already at the preferred maximum.');
-      }
-      return { blob: bestBlob, canvas: working, quality: bestQuality, warnings };
-    }
-
-    if (!compression.allowDimensionReduction || dimensionsAttempt >= 10) {
-      warnings.push('The requested maximum size could not be reached at the minimum quality.');
-      return { blob: bestBlob, canvas: working, quality: bestQuality, warnings };
-    }
-
-    const next = scaleCanvas(working, 0.88);
-    if (working !== initial) {
-      working.width = 1;
-      working.height = 1;
-    }
-    working = next;
-    dimensionsAttempt += 1;
+  const result = await encodeLossyToRange(working, format, minBytes, maxBytes, compression.preferredQuality);
+  if (result.overMax) {
+    warnings.push('The requested maximum size could not be reached without changing the chosen dimensions.');
   }
+
+  return {
+    blob: result.blob,
+    canvas: working,
+    quality: result.quality,
+    warnings,
+    sizeUnreachable: result.overMax,
+  };
 }
 
 function cropForAspectRatio(width: number, height: number, targetRatio: number): NormalizedCrop | undefined {
@@ -252,6 +299,7 @@ export async function processCanvasPipeline(
   output: Pick<ImageTransform, 'format' | 'compression' | 'background'>,
 ): Promise<ProcessedMedia> {
   let working = await blobToCanvas(sourceBlob);
+  const warnings: string[] = [];
 
   for (const operation of operations) {
     let next = working;
@@ -263,6 +311,53 @@ export async function processCanvasPipeline(
       next = cropCanvas(working, crop);
     } else if (operation.type === 'resize') {
       next = resizeCanvas(working, operation.settings);
+      if (operation.settings.fit === 'cover' && (working.width !== next.width || working.height !== next.height)) {
+        const sourceRatio = working.width / working.height;
+        const targetWidth = operation.settings.width;
+        const targetHeight = operation.settings.height;
+        if (targetWidth && targetHeight) {
+          const targetRatio = targetWidth / targetHeight;
+          if (Math.abs(sourceRatio - targetRatio) > 0.001) {
+            warnings.push('Resize “Fill & Crop” mode cropped some parts of the image to fit the aspect ratio.');
+          }
+        }
+      }
+    } else if (operation.type === 'sizefit') {
+      let attempts = 0;
+      let currentCanvas = working;
+      const format = operation.format;
+      const maxBytes = operation.maxBytes;
+      const minBytes = operation.minBytes;
+
+      if (format === 'png') {
+        let blob = await canvasToBlob(currentCanvas, 'image/png');
+        while (maxBytes && blob.size > maxBytes && attempts < 18) {
+          const nextCanvas = scaleCanvas(currentCanvas, dimensionScaleForTarget(blob.size, maxBytes));
+          if (currentCanvas !== working) {
+            currentCanvas.width = 1;
+            currentCanvas.height = 1;
+          }
+          currentCanvas = nextCanvas;
+          blob = await canvasToBlob(currentCanvas, 'image/png');
+          attempts += 1;
+        }
+        next = currentCanvas;
+      } else {
+        while (attempts < 18) {
+          const result = await encodeLossyToRange(currentCanvas, format, minBytes, maxBytes, operation.preferredQuality);
+          if (!result.overMax) {
+            break;
+          }
+          const nextCanvas = scaleCanvas(currentCanvas, dimensionScaleForTarget(result.blob.size, maxBytes));
+          if (currentCanvas !== working) {
+            currentCanvas.width = 1;
+            currentCanvas.height = 1;
+          }
+          currentCanvas = nextCanvas;
+          attempts += 1;
+        }
+        next = currentCanvas;
+      }
     }
 
     if (next !== working) {
@@ -288,21 +383,25 @@ export async function processCanvasPipeline(
   const height = result.canvas.height;
   result.canvas.width = 1;
   result.canvas.height = 1;
+
   return {
     blob: result.blob,
     width,
     height,
     format: output.format,
     quality: result.quality,
-    warnings: result.warnings,
+    warnings: [...warnings, ...result.warnings],
+    sizeUnreachable: result.sizeUnreachable,
   };
 }
 
 export async function processImage(sourceBlob: Blob, transform: ImageTransform): Promise<ProcessedMedia> {
   const operations: CanvasOperation[] = [];
   if (transform.rotation) operations.push({ type: 'rotate', degrees: transform.rotation as 90 | 180 | 270 });
+  const hasResize = Boolean(transform.resize?.width || transform.resize?.height || transform.resize?.percentage);
+  const addSizeFit = Boolean(transform.compression.maxBytes && !hasResize);
+
   if (transform.flipX || transform.flipY) {
-    // Existing public transform supports flips; keep this path local to avoid expanding pipeline options.
     let working = await blobToCanvas(sourceBlob);
     const rotated = rotateAndFlipCanvas(working, transform.rotation, transform.flipX, transform.flipY);
     working.width = 1;
@@ -310,12 +409,33 @@ export async function processImage(sourceBlob: Blob, transform: ImageTransform):
     const staged = await canvasToBlob(rotated, 'image/png');
     rotated.width = 1;
     rotated.height = 1;
-    return processCanvasPipeline(staged, [
-      ...(transform.crop ? [{ type: 'crop', crop: transform.crop } as CanvasOperation] : []),
-      ...(transform.resize ? [{ type: 'resize', settings: transform.resize } as CanvasOperation] : []),
-    ], transform);
+
+    const subOps: CanvasOperation[] = [];
+    if (transform.crop) subOps.push({ type: 'crop', crop: transform.crop });
+    if (transform.resize) subOps.push({ type: 'resize', settings: transform.resize });
+    if (addSizeFit) {
+      subOps.push({
+        type: 'sizefit',
+        maxBytes: transform.compression.maxBytes!,
+        minBytes: transform.compression.minBytes,
+        preferredQuality: transform.compression.preferredQuality,
+        minimumQuality: transform.compression.minimumQuality,
+        format: transform.format,
+      });
+    }
+    return processCanvasPipeline(staged, subOps, transform);
   }
   if (transform.crop) operations.push({ type: 'crop', crop: transform.crop });
   if (transform.resize) operations.push({ type: 'resize', settings: transform.resize });
+  if (addSizeFit) {
+    operations.push({
+      type: 'sizefit',
+      maxBytes: transform.compression.maxBytes!,
+      minBytes: transform.compression.minBytes,
+      preferredQuality: transform.compression.preferredQuality,
+      minimumQuality: transform.compression.minimumQuality,
+      format: transform.format,
+    });
+  }
   return processCanvasPipeline(sourceBlob, operations, transform);
 }

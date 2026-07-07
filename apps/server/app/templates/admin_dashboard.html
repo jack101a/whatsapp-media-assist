@@ -124,6 +124,17 @@
       </div>
       <div class="modal-body">
         <input type="hidden" id="device-modal-user-id">
+        <input type="hidden" id="device-modal-user-email">
+        <div class="form-group">
+          <label>Assigned Preset Templates</label>
+          <div id="user-template-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px;"></div>
+          <div class="input-row">
+            <select id="user-template-select" class="select"></select>
+            <button onclick="assignTemplateToCurrentUser()" class="btn primary">Assign Template</button>
+          </div>
+          <small style="color:var(--text-muted);">Assigning a template here makes it visible only to this user. Clear it to make that template global again.</small>
+        </div>
+        <div style="height:1px;background:var(--border);margin:16px 0;"></div>
         <div id="device-modal-list" style="display:flex; flex-direction:column; gap:12px;"></div>
       </div>
       <div class="modal-footer">
@@ -227,9 +238,9 @@
       
       <div style="padding: 16px 24px 0 24px;">
         <div class="modal-tabs">
-          <button onclick="switchModalTab('imagedefs')" id="tab-btn-imagedefs" class="modal-tab-btn active">Image Defaults</button>
+          <button onclick="switchModalTab('imagedefs')" id="tab-btn-imagedefs" class="modal-tab-btn active">Preset Settings</button>
           <button onclick="switchModalTab('mergepdf')" id="tab-btn-mergepdf" class="modal-tab-btn">Merge & PDF</button>
-          <button onclick="switchModalTab('pipelines')" id="tab-btn-pipelines" class="modal-tab-btn">Workflows (JSON)</button>
+          <button onclick="switchModalTab('pipelines')" id="tab-btn-pipelines" class="modal-tab-btn">Pipeline Builder</button>
         </div>
       </div>
 
@@ -254,7 +265,7 @@
         <!-- SECTION: IMAGE DEFAULTS -->
         <div id="modal-sec-imagedefs" class="modal-tab-content active">
           <div class="input-row three">
-            <div class="form-group">
+            <div class="form-group" data-flow="compress">
               <label for="imgdef-format">Default Format</label>
               <select id="imgdef-format" class="select">
                 <option value="jpeg">JPEG</option>
@@ -262,32 +273,44 @@
                 <option value="webp">WebP</option>
               </select>
             </div>
-            <div class="form-group">
+            <div class="form-group" data-flow="compress">
               <label for="imgdef-maxkb">Max KB size</label>
               <input type="number" id="imgdef-maxkb" class="input" value="180">
             </div>
-            <div class="form-group">
+            <div class="form-group" data-flow="crop">
               <label for="imgdef-crop">Default Crop Ratio</label>
               <select id="imgdef-crop" class="select">
                 <option value="free">Free Ratio</option>
                 <option value="original">Original</option>
                 <option value="1:1">1:1 Square</option>
+                <option value="3:4">3:4</option>
+                <option value="4:3">4:3</option>
                 <option value="16:9">16:9 widescreen</option>
               </select>
             </div>
           </div>
           <div class="input-row">
-            <div class="form-group">
+            <div class="form-group" data-flow="compress">
               <label for="imgdef-quality">Default Quality (0-100)</label>
               <input type="number" id="imgdef-quality" class="input" value="90">
             </div>
-            <div class="form-group">
+            <div class="form-group" data-flow="compress">
               <label for="imgdef-minquality">Minimum Quality threshold</label>
               <input type="number" id="imgdef-minquality" class="input" value="35">
             </div>
           </div>
           <div class="input-row">
-            <div class="form-group">
+            <div class="form-group" data-flow="resize">
+              <label for="imgdef-width">Resize Width</label>
+              <input type="number" id="imgdef-width" class="input" placeholder="Original">
+            </div>
+            <div class="form-group" data-flow="resize">
+              <label for="imgdef-height">Resize Height</label>
+              <input type="number" id="imgdef-height" class="input" placeholder="Auto">
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="form-group" data-flow="resize">
               <label for="imgdef-resizefit">Default Resize Fit</label>
               <select id="imgdef-resizefit" class="select">
                 <option value="contain">Contain (preserve aspect)</option>
@@ -295,26 +318,9 @@
                 <option value="stretch">Stretch</option>
               </select>
             </div>
-            <div class="form-group">
+            <div class="form-group" data-flow="filename">
               <label for="imgdef-filename">Filename Template</label>
               <input type="text" id="imgdef-filename" class="input" value="{datetime}">
-            </div>
-          </div>
-          
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
-            <div class="switch-container">
-              <div class="switch-label"><strong>Dimension Reduction</strong></div>
-              <label class="switch">
-                <input type="checkbox" id="imgdef-allowdim" checked>
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="switch-container">
-              <div class="switch-label"><strong>Allow Upscaling</strong></div>
-              <label class="switch">
-                <input type="checkbox" id="imgdef-allowupscale" checked>
-                <span class="slider"></span>
-              </label>
             </div>
           </div>
         </div>
@@ -328,6 +334,7 @@
                 <option value="vertical">Vertical</option>
                 <option value="horizontal">Horizontal</option>
                 <option value="grid">Grid Layout</option>
+                <option value="pages">PDF pages (one page per item)</option>
               </select>
             </div>
             <div class="form-group">
@@ -379,8 +386,158 @@
 
         <!-- SECTION: PIPELINES -->
         <div id="modal-sec-pipelines" class="modal-tab-content">
-          <label for="template-modal-pipelines" style="font-size:13px; font-weight:600;">Pipeline Payload JSON Object</label>
-          <textarea id="template-modal-pipelines" class="textarea code" style="min-height: 220px;"></textarea>
+          <div class="input-row three">
+            <div class="form-group">
+              <label for="pipeline-tag">Toolbar Tag</label>
+              <input type="text" id="pipeline-tag" class="input" maxlength="8" placeholder="UP1">
+            </div>
+            <div class="form-group">
+              <label for="pipeline-input-count">Required Media</label>
+              <input type="number" id="pipeline-input-count" class="input" min="1" max="20" value="1">
+            </div>
+            <div class="form-group">
+              <label for="pipeline-merge-layout">Merge Layout</label>
+              <select id="pipeline-merge-layout" class="select">
+                <option value="vertical">Top & bottom</option>
+                <option value="horizontal">Side by side</option>
+                <option value="grid">Grid</option>
+                <option value="pages">PDF pages</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Show button on WhatsApp</strong><span style="display:block;color:var(--text-muted);font-size:12px;">Pinned pipelines appear in the floating toolbar.</span></div>
+              <label class="switch">
+                <input type="checkbox" id="pipeline-pinned" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-background">Merge Background</label>
+              <input type="text" id="pipeline-background" class="input" value="#ffffff">
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Crop</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-step-crop"><span class="slider"></span></label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-crop-mode">Crop Mode</label>
+              <select id="pipeline-crop-mode" class="select">
+                <option value="ask">Ask user</option>
+                <option value="preset">Use preset ratio</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-crop-ratio">Crop Ratio</label>
+              <select id="pipeline-crop-ratio" class="select">
+                <option value="free">Free Ratio</option>
+                <option value="original">Original</option>
+                <option value="1:1">1:1 Square</option>
+                <option value="3:4">3:4</option>
+                <option value="4:3">4:3</option>
+                <option value="16:9">16:9</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Rotate</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-step-rotate"><span class="slider"></span></label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-rotate-degrees">Rotation</label>
+              <select id="pipeline-rotate-degrees" class="select">
+                <option value="90">Right 90</option>
+                <option value="-90">Left 90</option>
+                <option value="180">180</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Resize</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-step-resize"><span class="slider"></span></label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-resize-width">Width</label>
+              <input type="number" id="pipeline-resize-width" class="input" placeholder="Original">
+            </div>
+            <div class="form-group">
+              <label for="pipeline-resize-height">Height</label>
+              <input type="number" id="pipeline-resize-height" class="input" placeholder="Auto">
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="form-group">
+              <label for="pipeline-resize-fit">Resize Fit</label>
+              <select id="pipeline-resize-fit" class="select">
+                <option value="contain">Contain</option>
+                <option value="cover">Cover</option>
+                <option value="stretch">Stretch</option>
+              </select>
+            </div>
+            <div class="switch-container">
+              <div class="switch-label"><strong>Format</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-step-format" checked><span class="slider"></span></label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-format">Output Format</label>
+              <select id="pipeline-format" class="select">
+                <option value="jpeg">JPEG</option>
+                <option value="png">PNG</option>
+                <option value="webp">WebP</option>
+                <option value="pdf">PDF</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Compress</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-step-compress" checked><span class="slider"></span></label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-min-kb">Min KB</label>
+              <input type="number" id="pipeline-min-kb" class="input" placeholder="Optional">
+            </div>
+            <div class="form-group">
+              <label for="pipeline-max-kb">Max KB</label>
+              <input type="number" id="pipeline-max-kb" class="input" value="180">
+            </div>
+          </div>
+          <div class="input-row three">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Filename</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-step-filename"><span class="slider"></span></label>
+            </div>
+            <div class="form-group">
+              <label for="pipeline-filename-template">Filename Template</label>
+              <input type="text" id="pipeline-filename-template" class="input" value="{profile}_{datetime}">
+            </div>
+            <div class="form-group">
+              <label for="pipeline-filename-prefix">Filename Prefix</label>
+              <input type="text" id="pipeline-filename-prefix" class="input" placeholder="Optional">
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="switch-container">
+              <div class="switch-label"><strong>Remove spaces</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-remove-spaces"><span class="slider"></span></label>
+            </div>
+            <div class="switch-container">
+              <div class="switch-label"><strong>Remove special characters</strong></div>
+              <label class="switch"><input type="checkbox" id="pipeline-remove-special" checked><span class="slider"></span></label>
+            </div>
+          </div>
+          <div class="switch-container">
+            <div class="switch-label"><strong>Download automatically</strong><span style="display:block;color:var(--text-muted);font-size:12px;">Download remains the final pipeline step.</span></div>
+            <label class="switch">
+              <input type="checkbox" id="pipeline-step-download" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
         </div>
 
       </div>

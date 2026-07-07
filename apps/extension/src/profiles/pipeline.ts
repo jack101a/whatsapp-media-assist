@@ -17,8 +17,9 @@ export function availableStepTypes(profile: MediaProfile): PipelineStep['type'][
   return PIPELINE_STEP_TYPES.filter((type) => !used.has(type));
 }
 
-export function validatePipeline(profile: MediaProfile): string[] {
+export function validatePipeline(profile: MediaProfile): { errors: string[]; warnings: string[] } {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const seen = new Set<PipelineStep['type']>();
 
   for (const step of profile.steps) {
@@ -56,5 +57,29 @@ export function validatePipeline(profile: MediaProfile): string[] {
   }
 
   if (profile.inputCount < 1 || profile.inputCount > 20) errors.push('Required media must be between 1 and 20.');
-  return [...new Set(errors)];
+
+  // Warnings
+  const crop = profile.steps.find((step): step is Extract<PipelineStep, { type: 'crop' }> => step.type === 'crop');
+  if (crop && resize && resize.fit === 'cover') {
+    warnings.push('Both crop and resize “Fill & Crop” exist. This may result in double cropping.');
+  }
+
+  const formatStep = profile.steps.find((step): step is Extract<PipelineStep, { type: 'format' }> => step.type === 'format');
+  const format = formatStep?.format ?? 'jpeg';
+  if (format === 'png' && compression?.maxKB) {
+    warnings.push('PNG format has no quality control; target size can only be met by losing image dimensions.');
+  }
+
+  if (resize && resize.width && resize.height && compression?.maxKB) {
+    const pixels = resize.width * resize.height;
+    // Rough estimate: 0.1 bytes per pixel is extremely low quality for JPEG, if maxBytes is below that, it's very likely infeasible.
+    if (pixels * 0.1 > compression.maxKB * 1024) {
+      warnings.push(`Target size (${compression.maxKB} KB) may be too small for the specified resize dimensions (${resize.width}x${resize.height}).`);
+    }
+  }
+
+  return {
+    errors: [...new Set(errors)],
+    warnings: [...new Set(warnings)],
+  };
 }

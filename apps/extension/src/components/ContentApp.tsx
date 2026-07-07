@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
-import { getSettings, saveSettings, type AppSettings, watchSettings } from '../storage/settings';
+import { getSettings, saveSettings, type AppSettings, type CropRatio, watchSettings } from '../storage/settings';
 import type { CanvasOperation, ImageFormat, MergeItem, MergeLayout, NormalizedCrop, ResizeSettings } from '../types/media';
 import type { FilenamePreset, MediaProfile, PipelineStep } from '../types/profile';
 import { processCanvasPipeline, processImage, PrivacySourceError } from '../engine/canvas';
 import { downloadBlob } from '../engine/download';
 import { captureActiveMedia } from '../whatsapp/local-media';
-import { compressPdfLocally, mergeMedia, rasterizePdfForMerge, terminateProcessor } from '../engine/processor-client';
+import { compressPdfLocally, mergeMedia, rasterizePdfForMerge, scheduleIdleShutdown, terminateProcessor } from '../engine/processor-client';
 import { findActiveMedia, refreshActiveMedia, type ActiveMedia } from '../whatsapp/media-detector';
 import { formatBytes, kbToBytes } from '../utils/bytes';
 import { renderFilename, withExtension } from '../utils/filename';
@@ -47,7 +47,6 @@ const COMPRESS_TEMPLATE_KEYS: (keyof AppSettings)[] = [
   'defaultMinKB',
   'defaultQuality',
   'minimumQuality',
-  'allowDimensionReduction',
 ];
 const MERGE_TEMPLATE_KEYS: (keyof AppSettings)[] = [
   'mergeDefaultLayout',
@@ -93,6 +92,29 @@ function templateKeysForPreset(presetKey?: 'defaultCropPresetId' | 'defaultResiz
   if (presetKey === 'defaultResizePresetId') return RESIZE_TEMPLATE_KEYS;
   if (presetKey === 'defaultCompressPresetId') return COMPRESS_TEMPLATE_KEYS;
   return FILENAME_TEMPLATE_KEYS;
+}
+
+function isTemplateCategory(template: ServerTemplate, category: 'crop' | 'resize' | 'compress' | 'merge_pdf' | 'pipelines'): boolean {
+  if (template.category === category) return true;
+  if (template.category !== 'image_defaults') return false;
+  if (category === 'crop') {
+    const ratio = template.payload.defaultCropRatio;
+    return Boolean(ratio && ratio !== 'free' && ratio !== 'original');
+  }
+  if (category === 'resize') return Boolean(template.payload.defaultWidth || template.payload.defaultHeight);
+  if (category === 'compress') return Boolean(template.payload.defaultMaxKB || template.payload.defaultQuality || template.payload.defaultFormat);
+  return false;
+}
+
+function centeredCropForRatio(imageRect: DOMRect, ratio?: CropRatio): NormalizedCrop {
+  if (!ratio || ratio === 'free' || ratio === 'original') return { x: 0.06, y: 0.06, width: 0.88, height: 0.88 };
+  const [rw, rh] = ratio.split(':').map(Number);
+  if (!rw || !rh) return { x: 0.06, y: 0.06, width: 0.88, height: 0.88 };
+  const target = rw / rh;
+  const displayRatio = imageRect.width / imageRect.height;
+  const width = target > displayRatio ? 0.92 : Math.min(0.92, 0.92 * target / displayRatio);
+  const height = target > displayRatio ? Math.min(0.92, 0.92 * displayRatio / target) : 0.92;
+  return { x: (1 - width) / 2, y: (1 - height) / 2, width, height };
 }
 
 function useSettingsState() {
@@ -248,17 +270,28 @@ function PreviewCanvas({ media, transform }: { media: ActiveMedia; transform: Tr
   return <canvas ref={canvasRef} className="ma-live-preview" style={{ left: media.rect.left, top: media.rect.top, width: media.rect.width, height: media.rect.height }} />;
 }
 
-function CropOverlay({ imageRect, sourceRect, initial, onCancel, onConfirm, templates, defaultTemplateId, onApplyTemplate }: {
+const CROP_RATIO_PRESETS: Array<{ label: string; ratio: CropRatio }> = [
+  { label: 'Free', ratio: 'free' },
+  { label: '1:1', ratio: '1:1' },
+  { label: '3:4', ratio: '3:4' },
+  { label: '4:3', ratio: '4:3' },
+  { label: '16:9', ratio: '16:9' },
+  { label: 'Original', ratio: 'original' },
+];
+
+function CropOverlay({ imageRect, sourceRect, initial, initialRatio, onCancel, onConfirm, templates, defaultTemplateId, onApplyTemplate }: {
   imageRect: DOMRect;
   sourceRect: DOMRect;
   initial?: NormalizedCrop;
+  initialRatio?: CropRatio;
   onCancel: () => void;
   onConfirm: (crop: NormalizedCrop) => void;
   templates?: ServerTemplate[];
   defaultTemplateId?: string;
   onApplyTemplate?: (templateId: string) => void;
 }) {
-  const [crop, setCrop] = useState<NormalizedCrop>(initial ?? { x: 0.06, y: 0.06, width: 0.88, height: 0.88 });
+  const [crop, setCrop] = useState<NormalizedCrop>(initial ?? centeredCropForRatio(imageRect, initialRatio));
+  const [activeRatio, setActiveRatio] = useState<CropRatio>(initialRatio ?? 'free');
   const [selectedTemplateId, setSelectedTemplateId] = useState(defaultTemplateId ?? '');
   const drag = useRef<{ mode: 'move' | 'nw' | 'ne' | 'sw' | 'se'; startX: number; startY: number; start: NormalizedCrop } | null>(null);
 
@@ -297,20 +330,20 @@ function CropOverlay({ imageRect, sourceRect, initial, onCancel, onConfirm, temp
     drag.current = { mode, startX: event.clientX, startY: event.clientY, start: crop };
   };
 
+  const applyRatio = (ratio: CropRatio) => {
+    setActiveRatio(ratio);
+    setSelectedTemplateId('');
+    setCrop(centeredCropForRatio(imageRect, ratio));
+  };
+
   const applyTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
     const template = templates?.find((item) => item.id === templateId);
     if (!template) return;
     onApplyTemplate?.(templateId);
-    const ratioValue = template.payload.defaultCropRatio;
-    if (!ratioValue || ratioValue === 'free' || ratioValue === 'original') return;
-    const [rw, rh] = String(ratioValue).split(':').map(Number);
-    if (!rw || !rh) return;
-    const target = rw / rh;
-    const displayRatio = imageRect.width / imageRect.height;
-    const width = target > displayRatio ? 0.92 : Math.min(0.92, 0.92 * target / displayRatio);
-    const height = target > displayRatio ? Math.min(0.92, 0.92 * displayRatio / target) : 0.92;
-    setCrop({ x: (1 - width) / 2, y: (1 - height) / 2, width, height });
+    const ratio = template.payload.defaultCropRatio;
+    if (ratio) setActiveRatio(ratio as CropRatio);
+    setCrop(centeredCropForRatio(imageRect, template.payload.defaultCropRatio));
   };
 
   const boxStyle = {
@@ -327,10 +360,22 @@ function CropOverlay({ imageRect, sourceRect, initial, onCancel, onConfirm, temp
       {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => <span key={corner} className={`ma-handle ${corner}`} onPointerDown={(event) => begin(corner, event)} />)}
     </div>
     <div className="ma-crop-controls">
-      {!!templates?.length && <select className="ma-compact-select" aria-label="Crop presets" value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}><option value="">Crop preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>}
-      <button className="ma-compact-btn" onClick={() => setCrop({ x: 0, y: 0, width: 1, height: 1 })}>Reset</button>
-      <button className="ma-compact-btn" onClick={onCancel}>Cancel</button>
-      <button className="ma-compact-btn primary" onClick={() => onConfirm(cropFromVisibleRect(crop, imageRect, sourceRect))}><Icon name="check" />Apply</button>
+      <div className="ma-preset-chips">
+        {CROP_RATIO_PRESETS.map((preset) => (
+          <button key={preset.ratio} className={`ma-chip${activeRatio === preset.ratio ? ' active' : ''}`} onClick={() => applyRatio(preset.ratio)}>{preset.label}</button>
+        ))}
+        {!!templates?.length && (
+          <select className="ma-compact-select" aria-label="Saved crop presets" value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}>
+            <option value="">Saved…</option>
+            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </select>
+        )}
+      </div>
+      <div className="ma-crop-actions">
+        <button className="ma-compact-btn" onClick={() => { setCrop({ x: 0, y: 0, width: 1, height: 1 }); setActiveRatio('free'); }}>Reset</button>
+        <button className="ma-compact-btn" onClick={onCancel}>Cancel</button>
+        <button className="ma-compact-btn primary" onClick={() => onConfirm(cropFromVisibleRect(crop, imageRect, sourceRect))}><Icon name="check" />Apply</button>
+      </div>
     </div>
   </div>;
 }
@@ -341,6 +386,17 @@ function QuickPanelCard({ title, onClose, children }: { title: string; onClose: 
     {children}
   </section>;
 }
+
+interface ResizePreset { label: string; sublabel: string; width?: number; height?: number }
+const RESIZE_PRESETS: ResizePreset[] = [
+  { label: 'Photo', sublabel: '160×200', width: 160, height: 200 },
+  { label: 'Sign', sublabel: '256×64', width: 256, height: 64 },
+  { label: 'PAN Card', sublabel: '213×213', width: 213, height: 213 },
+  { label: 'US Visa', sublabel: '600×600', width: 600, height: 600 },
+  { label: 'Passport', sublabel: '413×531', width: 413, height: 531 },
+  { label: 'HD', sublabel: '1280×720', width: 1280, height: 720 },
+  { label: 'Full HD', sublabel: '1920×1080', width: 1920, height: 1080 },
+];
 
 function ResizePanel({ settings, current, onApply, onClose, busy, templates, defaultTemplateId, onApplyTemplate }: {
   settings: AppSettings;
@@ -355,20 +411,48 @@ function ResizePanel({ settings, current, onApply, onClose, busy, templates, def
   const [width, setWidth] = useState(String(current?.width ?? settings.defaultWidth ?? ''));
   const [height, setHeight] = useState(String(current?.height ?? settings.defaultHeight ?? ''));
   const [selectedTemplateId, setSelectedTemplateId] = useState(defaultTemplateId ?? '');
+  const [activePreset, setActivePreset] = useState<string>('');
   const applyTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
+    setActivePreset('');
     const template = templates?.find((item) => item.id === templateId);
     if (!template) return;
     setWidth(String(template.payload.defaultWidth ?? ''));
     setHeight(String(template.payload.defaultHeight ?? ''));
     onApplyTemplate?.(templateId);
   };
+  const applyPreset = (preset: ResizePreset) => {
+    setActivePreset(preset.label);
+    setSelectedTemplateId('');
+    setWidth(String(preset.width ?? ''));
+    setHeight(String(preset.height ?? ''));
+  };
+  const doApply = (w: string, h: string) => {
+    onApply(w || h ? { width: w ? Number(w) : undefined, height: h ? Number(h) : undefined, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined);
+    onClose();
+  };
   return <QuickPanelCard title="Resize" onClose={onClose}>
-    {!!templates?.length && <label className="ma-single-field">Preset<select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}><option value="">Choose resize preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
-    <div className="ma-mini-grid"><label>Width<input value={width} inputMode="numeric" onChange={(event) => setWidth(event.target.value.replace(/\D/g, ''))} placeholder="Original" /></label><label>Height<input value={height} inputMode="numeric" onChange={(event) => setHeight(event.target.value.replace(/\D/g, ''))} placeholder="Auto" /></label></div>
-    <div className="ma-panel-actions"><button className="ma-compact-btn" disabled={busy} onClick={() => { onApply(undefined); onClose(); }}>Reset</button><button className="ma-compact-btn primary" disabled={busy} onClick={() => { onApply(width || height ? { width: width ? Number(width) : undefined, height: height ? Number(height) : undefined, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit } : undefined); onClose(); }}>{busy ? 'Working...' : 'Apply'}</button></div>
+    <div className="ma-preset-grid">
+      {RESIZE_PRESETS.map((preset) => (
+        <button key={preset.label} className={`ma-preset-tile${activePreset === preset.label ? ' active' : ''}`} disabled={busy} onClick={() => { applyPreset(preset); doApply(String(preset.width ?? ''), String(preset.height ?? '')); }}>
+          <span className="ma-tile-label">{preset.label}</span>
+          <span className="ma-tile-sub">{preset.sublabel}</span>
+        </button>
+      ))}
+    </div>
+    {!!templates?.length && <label className="ma-single-field">Saved preset<select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}><option value="">Choose…</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
+    <div className="ma-mini-grid"><label>Width px<input value={width} inputMode="numeric" onChange={(event) => { setWidth(event.target.value.replace(/\D/g, '')); setActivePreset(''); }} placeholder="Original" /></label><label>Height px<input value={height} inputMode="numeric" onChange={(event) => { setHeight(event.target.value.replace(/\D/g, '')); setActivePreset(''); }} placeholder="Auto" /></label></div>
+    <div className="ma-panel-actions"><button className="ma-compact-btn" disabled={busy} onClick={() => { onApply(undefined); onClose(); }}>Reset</button><button className="ma-compact-btn primary" disabled={busy} onClick={() => doApply(width, height)}>{busy ? 'Working…' : 'Apply custom'}</button></div>
   </QuickPanelCard>;
 }
+
+const COMPRESS_SIZE_PRESETS: Array<{ label: string; maxKB: number }> = [
+  { label: 'Under 20 KB', maxKB: 20 },
+  { label: 'Under 50 KB', maxKB: 50 },
+  { label: 'Under 100 KB', maxKB: 100 },
+  { label: 'Under 200 KB', maxKB: 200 },
+  { label: 'Under 500 KB', maxKB: 500 },
+];
 
 function CompressPanel({ settings, onDownload, onClose, busy, templates, defaultTemplateId, onApplyTemplate }: {
   settings: AppSettings;
@@ -383,8 +467,10 @@ function CompressPanel({ settings, onDownload, onClose, busy, templates, default
   const [format, setFormat] = useState<ImageFormat>(settings.defaultFormat);
   const [quality, setQuality] = useState(String(settings.defaultQuality));
   const [selectedTemplateId, setSelectedTemplateId] = useState(defaultTemplateId ?? '');
+  const [activePreset, setActivePreset] = useState<number | null>(null);
   const applyTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
+    setActivePreset(null);
     const template = templates?.find((item) => item.id === templateId);
     if (!template) return;
     setMaxKB(String(template.payload.defaultMaxKB ?? ''));
@@ -393,9 +479,31 @@ function CompressPanel({ settings, onDownload, onClose, busy, templates, default
     onApplyTemplate?.(templateId);
   };
   return <QuickPanelCard title="Compress" onClose={onClose}>
-    {!!templates?.length && <label className="ma-single-field">Preset<select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}><option value="">Choose compression preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
-    <div className="ma-mini-grid"><label>Max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Format<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat)}><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label></div>
-    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, format, clampQualityPercent(quality ? Number(quality) : undefined, settings.defaultQuality))}><Icon name="download" />{busy ? 'Working...' : 'Apply'}</button></div>
+    <div className="ma-compress-presets">
+      {COMPRESS_SIZE_PRESETS.map((preset) => (
+        <button
+          key={preset.maxKB}
+          className={`ma-size-btn${activePreset === preset.maxKB ? ' active' : ''}`}
+          disabled={busy}
+          onClick={() => {
+            setActivePreset(preset.maxKB);
+            setMaxKB(String(preset.maxKB));
+            setSelectedTemplateId('');
+            // Always use maximum quality for preset buttons — engine binary-searches downward
+            onDownload(preset.maxKB, format, 100);
+          }}
+        >
+          {preset.label}
+        </button>
+      ))}
+    </div>
+    {!!templates?.length && <label className="ma-single-field">Saved preset<select value={selectedTemplateId} onChange={(event) => applyTemplate(event.target.value)}><option value="">Choose…</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}
+    <div className="ma-mini-grid">
+      <label>Format<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat)}><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label>
+      <label>Custom max KB<input value={maxKB} inputMode="numeric" onChange={(event) => { setMaxKB(event.target.value.replace(/\D/g, '')); setActivePreset(null); }} placeholder="No limit" /></label>
+      <label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => { setQuality(event.target.value.replace(/\D/g, '')); setActivePreset(null); }} placeholder="90" /></label>
+    </div>
+    <div className="ma-panel-actions"><button className="ma-compact-btn primary" disabled={busy} onClick={() => onDownload(maxKB ? Number(maxKB) : undefined, format, clampQualityPercent(quality ? Number(quality) : undefined, settings.defaultQuality))}><Icon name="download" />{busy ? 'Working…' : 'Custom apply'}</button></div>
   </QuickPanelCard>;
 }
 
@@ -491,6 +599,17 @@ function MergeLayoutPreview({ items, layout, background, gap, padding, borderWid
   onSelect: (id: string) => void;
   onItemChange: (item: MergeItem) => void;
 }) {
+  if (layout === 'pages') {
+    return <div className="ma-a4-stage">
+      <div className="ma-pdf-pages" style={{ background }} onClick={() => onSelect('')}>
+        {items.map((item, index) => <button key={item.id} className={`ma-pdf-page-preview${selectedId === item.id ? ' selected' : ''}`} onClick={(event) => { event.stopPropagation(); onSelect(item.id); }}>
+          <PreviewItem item={item} />
+          <span>{index + 1}</span>
+        </button>)}
+      </div>
+      <span className="ma-a4-caption">PDF pages - one original-size page per stack item</span>
+    </div>;
+  }
   const style = {
     background,
     padding: `${Math.max(8, Math.min(50, padding / 5))}px`,
@@ -574,8 +693,9 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
 
   useEffect(() => {
     if (layout === 'grid' && !allImages) setLayout('vertical');
+    if (layout === 'pages' && format !== 'pdf') setFormat('pdf');
     if (selectedId && !items.some((item) => item.id === selectedId)) setSelectedId(items[0]?.id ?? '');
-  }, [items, layout, allImages, selectedId]);
+  }, [items, layout, allImages, selectedId, format]);
 
   const updateItem = useCallback((next: MergeItem) => onItemsChange(items.map((item) => item.id === next.id ? next : item)), [items, onItemsChange]);
   const reorder = (targetIndex: number) => {
@@ -614,7 +734,7 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
     const template = templates.find((item) => item.id === templateId);
     if (!template) return;
     const payload = template.payload;
-    if (payload.mergeDefaultLayout === 'vertical' || payload.mergeDefaultLayout === 'horizontal' || payload.mergeDefaultLayout === 'grid') setLayout(payload.mergeDefaultLayout);
+    if (payload.mergeDefaultLayout === 'vertical' || payload.mergeDefaultLayout === 'horizontal' || payload.mergeDefaultLayout === 'grid' || payload.mergeDefaultLayout === 'pages') setLayout(payload.mergeDefaultLayout);
     if (payload.mergeDefaultFormat === 'pdf' || payload.mergeDefaultFormat === 'jpeg' || payload.mergeDefaultFormat === 'png' || payload.mergeDefaultFormat === 'webp') setFormat(payload.mergeDefaultFormat);
     if (payload.mergeDefaultMaxKB !== undefined) setMaxKB(String(payload.mergeDefaultMaxKB));
     if (payload.mergeDefaultQuality !== undefined) setQuality(String(payload.mergeDefaultQuality));
@@ -631,11 +751,13 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
   const exportMerge = async () => {
     if (!items.length) return;
     if (layout === 'grid' && !allImages) return onToast('Grid layout is available only when every item is an image.', true);
+    if (layout === 'pages' && format !== 'pdf') return onToast('PDF pages mode exports PDF only.', true);
     setProcessing(true);
     try {
+      const outputFormat = layout === 'pages' ? 'pdf' : format;
       const blob = await mergeMedia(items, {
         layout,
-        format,
+        format: outputFormat,
         background,
         gap: Math.max(0, Number(gap) || 0),
         padding: Math.max(0, Number(padding) || 0),
@@ -645,8 +767,8 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
         quality: clampQualityPercent(quality ? Number(quality) : undefined, settings.mergeDefaultQuality) / 100,
         maxBytes: kbToBytes(maxKB ? Number(maxKB) : undefined),
       }, (_current, _total, note) => onToast(note));
-      const safeName = renderFilename(filename, { format }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: true });
-      await downloadBlob(blob, withExtension(safeName, format));
+      const safeName = renderFilename(filename, { format: outputFormat }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: true });
+      await downloadBlob(blob, withExtension(safeName, outputFormat));
       onToast(`Downloaded A4 ${format.toUpperCase()} • ${formatBytes(blob.size)}`);
       onItemsChange([]);
       setSelectedId('');
@@ -663,8 +785,8 @@ function MergeWorkspace({ items, settings, onItemsChange, onClose, onToast, temp
     <div className="ma-workspace-grid">
       <MergeLayoutPreview items={items} layout={layout} background={background} gap={Number(gap) || 0} padding={Number(padding) || 0} borderWidth={Number(borderWidth) || 0} borderColor={borderColor} gridColumns={Number(gridColumns) || 2} selectedId={selectedId} onSelect={setSelectedId} onItemChange={updateItem} />
       <aside className="ma-merge-sidebar">
-        <div className="ma-layout-tabs"><button className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}>Top & bottom</button><button className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}>Side by side</button><button className={layout === 'grid' ? 'active' : ''} disabled={!allImages} title={!allImages ? 'Grid is available only for images' : ''} onClick={() => setLayout('grid')}>Grid</button></div>
-        <div className="ma-merge-settings">{templates.length > 0 && <label className="wide">Preset<select value={selectedTemplateId} onChange={(event) => applyMergeTemplate(event.target.value)}><option value="">Choose merge preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}<label>Output<select value={format} onChange={(event) => setFormat(event.target.value as ImageFormat | 'pdf')}><option value="pdf">PDF</option><option value="jpeg">JPEG</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label>{layout === 'grid' && <label>Grid columns<input value={gridColumns} inputMode="numeric" onChange={(event) => setGridColumns(event.target.value.replace(/\D/g, ''))} /></label>}<label>Gap<input value={gap} inputMode="numeric" onChange={(event) => setGap(event.target.value.replace(/\D/g, ''))} /></label><label>Page margin<input value={padding} inputMode="numeric" onChange={(event) => setPadding(event.target.value.replace(/\D/g, ''))} /></label><label>Border<input value={borderWidth} inputMode="numeric" onChange={(event) => setBorderWidth(event.target.value.replace(/\D/g, ''))} /></label><label>Page colour<input type="color" value={background} onChange={(event) => setBackground(event.target.value)} /></label><label>Border colour<input type="color" value={borderColor} onChange={(event) => setBorderColor(event.target.value)} /></label><label className="wide">Filename<input value={filename} onChange={(event) => setFilename(event.target.value)} /></label></div>
+        <div className="ma-layout-tabs"><button className={layout === 'vertical' ? 'active' : ''} onClick={() => setLayout('vertical')}>Top & bottom</button><button className={layout === 'horizontal' ? 'active' : ''} onClick={() => setLayout('horizontal')}>Side by side</button><button className={layout === 'grid' ? 'active' : ''} disabled={!allImages} title={!allImages ? 'Grid is available only for images' : ''} onClick={() => setLayout('grid')}>Grid</button><button className={layout === 'pages' ? 'active' : ''} onClick={() => { setLayout('pages'); setFormat('pdf'); }}>PDF pages</button></div>
+        <div className="ma-merge-settings">{templates.length > 0 && <label className="wide">Preset<select value={selectedTemplateId} onChange={(event) => applyMergeTemplate(event.target.value)}><option value="">Choose merge preset</option>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}<label>Output<select value={layout === 'pages' ? 'pdf' : format} disabled={layout === 'pages'} onChange={(event) => setFormat(event.target.value as ImageFormat | 'pdf')}><option value="jpeg">JPEG</option><option value="pdf">PDF</option><option value="png">PNG</option><option value="webp">WebP</option></select></label><label>Target max KB<input value={maxKB} inputMode="numeric" onChange={(event) => setMaxKB(event.target.value.replace(/\D/g, ''))} placeholder="No limit" /></label><label>Quality %<input value={quality} inputMode="numeric" onChange={(event) => setQuality(event.target.value.replace(/\D/g, ''))} placeholder="90" /></label>{layout === 'grid' && <label>Grid columns<input value={gridColumns} inputMode="numeric" onChange={(event) => setGridColumns(event.target.value.replace(/\D/g, ''))} /></label>}{layout !== 'pages' && <><label>Gap<input value={gap} inputMode="numeric" onChange={(event) => setGap(event.target.value.replace(/\D/g, ''))} /></label><label>Page margin<input value={padding} inputMode="numeric" onChange={(event) => setPadding(event.target.value.replace(/\D/g, ''))} /></label><label>Border<input value={borderWidth} inputMode="numeric" onChange={(event) => setBorderWidth(event.target.value.replace(/\D/g, ''))} /></label></>}<label>Page colour<input type="color" value={background} onChange={(event) => setBackground(event.target.value)} /></label>{layout !== 'pages' && <label>Border colour<input type="color" value={borderColor} onChange={(event) => setBorderColor(event.target.value)} /></label>}<label className="wide">Filename<input value={filename} onChange={(event) => setFilename(event.target.value)} /></label></div>
         {selected && <div className="ma-selected-controls"><strong>Selected item</strong><div><button onClick={() => setCropItem(selected)}><Icon name="crop" size={15} />Crop</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 270) % 360) as Rotation })}><Icon name="rotate-left" size={15} />Left</button><button onClick={() => updateItem({ ...selected, rotation: ((selected.rotation + 90) % 360) as Rotation })}><Icon name="rotate-right" size={15} />Right</button></div><label>Zoom <input type="range" min="60" max="160" value={Math.round((selected.placement?.scale ?? 1) * 100)} onChange={(event) => updateItem({ ...selected, placement: { ...(selected.placement ?? { offsetX: 0, offsetY: 0, scale: 1 }), scale: Number(event.target.value) / 100 } })} /></label><button className="ma-reset-position" onClick={() => updateItem({ ...selected, placement: { offsetX: 0, offsetY: 0, scale: 1 } })}>Reset position & zoom</button></div>}
       </aside>
     </div>
@@ -795,13 +917,15 @@ export function ContentApp() {
         missingSince.current = now;
         // A single delayed recheck keeps the toolbar stable through WhatsApp's
         // transient React node replacement, without continuous polling.
+        // Use a longer grace window so rotate/crop DOM mutations don't wipe state.
         graceTimer = window.setTimeout(() => {
           graceTimer = null;
           schedule();
-        }, closeHinted ? 140 : 1000);
+        }, closeHinted ? 120 : 1400);
       }
       // Keep the session alive through a brief replacement to prevent blinking.
-      if (now - missingSince.current < (closeHinted ? 120 : 960)) return;
+      // The 1400ms window must be generous enough to survive a rotate+DOM churn cycle.
+      if (now - missingSince.current < (closeHinted ? 100 : 1350)) return;
 
       resetViewerTools();
       missingSince.current = null;
@@ -895,14 +1019,11 @@ export function ContentApp() {
     const localTemplates = settings.localTemplates.map((template) => ({ ...template, payload: template.payload as Partial<AppSettings> }));
     return [...serverTemplates, ...localTemplates].filter((template) => !deleted.has(template.id) && !disabled.has(template.id));
   }, [premium, serverTemplates, settings]);
-  const imageTemplates = useMemo(() => activeTemplates.filter((template) => template.category === 'image_defaults'), [activeTemplates]);
-  const mergeTemplates = useMemo(() => activeTemplates.filter((template) => template.category === 'merge_pdf'), [activeTemplates]);
-  const cropTemplates = useMemo(() => imageTemplates.filter((template) => {
-    const ratio = template.payload.defaultCropRatio;
-    return ratio && ratio !== 'free' && ratio !== 'original';
-  }), [imageTemplates]);
-  const resizeTemplates = useMemo(() => imageTemplates.filter((template) => template.payload.defaultWidth || template.payload.defaultHeight), [imageTemplates]);
-  const compressTemplates = useMemo(() => imageTemplates.filter((template) => template.payload.defaultMaxKB || template.payload.defaultQuality || template.payload.defaultFormat), [imageTemplates]);
+  const imageTemplates = useMemo(() => activeTemplates.filter((template) => ['image_defaults', 'crop', 'resize', 'compress'].includes(template.category)), [activeTemplates]);
+  const mergeTemplates = useMemo(() => activeTemplates.filter((template) => isTemplateCategory(template, 'merge_pdf')), [activeTemplates]);
+  const cropTemplates = useMemo(() => activeTemplates.filter((template) => isTemplateCategory(template, 'crop')), [activeTemplates]);
+  const resizeTemplates = useMemo(() => activeTemplates.filter((template) => isTemplateCategory(template, 'resize')), [activeTemplates]);
+  const compressTemplates = useMemo(() => activeTemplates.filter((template) => isTemplateCategory(template, 'compress')), [activeTemplates]);
 
   const rotate = (direction: -1 | 1) => {
     setTransform((current) => ({ ...current, rotation: ((current.rotation + (direction === 1 ? 90 : 270)) % 360) as Rotation, crop: undefined }));
@@ -980,7 +1101,6 @@ export function ContentApp() {
           maxBytes: isCompressionAction ? kbToBytes(maxKB) : undefined,
           preferredQuality: isCompressionAction ? clampQualityPercent(qualityOverride, settings.defaultQuality) / 100 : STANDARD_IMAGE_QUALITY,
           minimumQuality: isCompressionAction ? settings.minimumQuality / 100 : STANDARD_MINIMUM_QUALITY,
-          allowDimensionReduction: isCompressionAction ? settings.allowDimensionReduction : false,
         },
         background: '#ffffff',
       });
@@ -989,12 +1109,20 @@ export function ContentApp() {
         : withExtension(renderFilename(settings.defaultFilenameTemplate, { width: result.width, height: result.height, format }, { removeSpaces: settings.removeSpacesByDefault, removeSpecialCharacters: settings.removeSpecialCharactersByDefault }), format);
       await downloadBlob(result.blob, filename);
       setTransform(EMPTY_TRANSFORM);
-      toast(`Downloaded ${filename} • ${formatBytes(result.blob.size)}`);
+      if (result.sizeUnreachable) {
+        toast(`Could not reach target size (${maxKB} KB). Output: ${formatBytes(result.blob.size)}`, true);
+      } else if (result.warnings.length > 0) {
+        toast(`Downloaded ${filename} • ${result.warnings.join(' ')}`, true);
+      } else {
+        toast(`Downloaded ${filename} • ${formatBytes(result.blob.size)}`);
+      }
       setQuickPanel(null);
     } catch (error) {
       toast(error instanceof PrivacySourceError ? 'This media is not locally accessible. No outside request was made.' : (error instanceof Error ? error.message : 'Download failed.'), true);
     } finally {
-      terminateProcessor();
+      // Schedule idle shutdown instead of hard-terminating so subsequent rapid
+      // operations can reuse the already-warmed processor iframe.
+      scheduleIdleShutdown();
       setBusy(false);
     }
   };
@@ -1062,13 +1190,18 @@ export function ContentApp() {
       const filenameStep = stepOf(profile, 'filename');
       const downloadStep = stepOf(profile, 'download');
       const requestedFormat = formatStep?.format ?? settings.defaultFormat;
-      const intermediateFormat: ImageFormat = requestedFormat === 'pdf' ? 'jpeg' : requestedFormat;
+      const pipelineOutputFormat: ImageFormat | 'pdf' = profile.inputCount > 1 && profile.mergeLayout === 'pages' ? 'pdf' : requestedFormat;
+      const intermediateFormat: ImageFormat = pipelineOutputFormat === 'pdf' ? 'jpeg' : pipelineOutputFormat;
       const operations: CanvasOperation[] = [];
 
-      // Manual changes visible in the viewer are the starting state for a pipeline.
-      if (transform.rotation) operations.push({ type: 'rotate', degrees: transform.rotation });
-      if (transform.crop && !(cropStep?.mode === 'ask' && manualCrop)) operations.push({ type: 'crop', crop: transform.crop });
-      if (transform.resize) operations.push({ type: 'resize', settings: transform.resize });
+      const hasRotateStep = profile.steps.some((s) => s.type === 'rotate');
+      const hasCropStep = profile.steps.some((s) => s.type === 'crop');
+      const hasResizeStep = profile.steps.some((s) => s.type === 'resize');
+
+      // Manual changes visible in the viewer are the starting state for a pipeline only if the pipeline does not define them.
+      if (transform.rotation && !hasRotateStep) operations.push({ type: 'rotate', degrees: transform.rotation });
+      if (transform.crop && !hasCropStep) operations.push({ type: 'crop', crop: transform.crop });
+      if (transform.resize && !hasResizeStep) operations.push({ type: 'resize', settings: transform.resize });
 
       for (const step of profile.steps) {
         if (step.type === 'rotate') operations.push({ type: 'rotate', degrees: step.degrees });
@@ -1081,18 +1214,30 @@ export function ContentApp() {
         }
         if (step.type === 'resize') operations.push({
           type: 'resize',
-          settings: { width: step.width, height: step.height, maintainAspectRatio: true, allowUpscale: step.allowUpscale, fit: step.fit },
+          settings: { width: step.width, height: step.height, maintainAspectRatio: true, allowUpscale: true, fit: step.fit },
+        });
+      }
+
+      const maxBytes = kbToBytes(compressStep?.maxKB);
+      const minBytes = kbToBytes(compressStep?.minKB);
+      if (compressStep?.allowDimensionReduction && maxBytes) {
+        operations.push({
+          type: 'sizefit',
+          maxBytes,
+          minBytes,
+          preferredQuality: settings.defaultQuality / 100,
+          minimumQuality: settings.minimumQuality / 100,
+          format: intermediateFormat,
         });
       }
 
       const processed = await processCanvasPipeline(source, operations, {
         format: intermediateFormat,
         compression: {
-          minBytes: profile.inputCount === 1 && requestedFormat !== 'pdf' ? kbToBytes(compressStep?.minKB) : undefined,
-          maxBytes: profile.inputCount === 1 && requestedFormat !== 'pdf' ? kbToBytes(compressStep?.maxKB) : undefined,
+          minBytes,
+          maxBytes,
           preferredQuality: settings.defaultQuality / 100,
           minimumQuality: settings.minimumQuality / 100,
-          allowDimensionReduction: settings.allowDimensionReduction,
         },
         background: profile.background,
       });
@@ -1114,7 +1259,7 @@ export function ContentApp() {
         }
         const output = await mergeMedia(items.slice(0, profile.inputCount), {
           layout: profile.mergeLayout,
-          format: requestedFormat,
+          format: pipelineOutputFormat,
           background: profile.background,
           gap: settings.mergeDefaultGap,
           padding: settings.mergeDefaultPadding,
@@ -1123,8 +1268,9 @@ export function ContentApp() {
           gridColumns: settings.mergeDefaultGridColumns,
           quality: settings.defaultQuality / 100,
           maxBytes: kbToBytes(compressStep?.maxKB),
+          minBytes: kbToBytes(compressStep?.minKB),
         });
-        const filename = withExtension(renderFilename(filenameTemplate, { profile: profile.name, format: requestedFormat, prefix: filenameStep?.prefix }, filenameOptions), requestedFormat);
+        const filename = withExtension(renderFilename(filenameTemplate, { profile: profile.name, format: pipelineOutputFormat, prefix: filenameStep?.prefix }, filenameOptions), pipelineOutputFormat);
         if (downloadStep?.automatic === false && !window.confirm(`Download ${filename}?`)) return;
         await downloadBlob(output, filename);
         setProfileSessions((current) => { const next = { ...current }; delete next[profile.id]; return next; });
@@ -1133,23 +1279,31 @@ export function ContentApp() {
       }
 
       let output = processed.blob;
-      let extension: ImageFormat | 'pdf' = requestedFormat;
-      if (requestedFormat === 'pdf') {
+      let extension: ImageFormat | 'pdf' = pipelineOutputFormat;
+      if (pipelineOutputFormat === 'pdf') {
         output = await mergeMedia([{ id: createId(), blob: processed.blob, name: profile.name, rotation: 0, placement: { offsetX: 0, offsetY: 0, scale: 1 }, sourceType: 'image' }], {
           layout: 'vertical', format: 'pdf', background: profile.background, gap: settings.mergeDefaultGap, padding: settings.mergeDefaultPadding,
           borderWidth: settings.mergeDefaultBorderWidth, borderColor: settings.mergeDefaultBorderColor, gridColumns: 1,
-          quality: settings.defaultQuality / 100, maxBytes: kbToBytes(compressStep?.maxKB),
+          quality: settings.defaultQuality / 100,
+          maxBytes: kbToBytes(compressStep?.maxKB),
+          minBytes: kbToBytes(compressStep?.minKB),
         });
       }
       const filename = withExtension(renderFilename(filenameTemplate, { profile: profile.name, format: extension, width: processed.width, height: processed.height, prefix: filenameStep?.prefix }, filenameOptions), extension);
       if (downloadStep?.automatic === false && !window.confirm(`Download ${filename}?`)) return;
       await downloadBlob(output, filename);
-      toast(`${profile.name} completed • ${formatBytes(output.size)}`);
+      if (processed.sizeUnreachable) {
+        toast(`Could not reach target size (${compressStep?.maxKB} KB). Output: ${formatBytes(output.size)}`, true);
+      } else if (processed.warnings.length > 0) {
+        toast(`${profile.name} completed • ${processed.warnings.join(' ')}`, true);
+      } else {
+        toast(`${profile.name} completed • ${formatBytes(output.size)}`);
+      }
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Pipeline failed.', true);
     } finally {
       setTransform(EMPTY_TRANSFORM);
-      terminateProcessor();
+      scheduleIdleShutdown();
       setBusy(false);
       setPendingPipeline(null);
     }
@@ -1178,7 +1332,7 @@ export function ContentApp() {
   const downloadWithDefaultResize = () => {
     if (!settings) return;
     const resize = settings.defaultWidth || settings.defaultHeight
-      ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: settings.allowUpscale, fit: settings.defaultResizeFit }
+      ? { width: settings.defaultWidth, height: settings.defaultHeight, maintainAspectRatio: true, allowUpscale: true, fit: settings.defaultResizeFit }
       : undefined;
     void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp');
   };
@@ -1247,12 +1401,12 @@ export function ContentApp() {
       </div>}
     </div>}
 
-    {!mergeOpen && toolbarUiVisible && media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: rotateLeft, top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(-1); }}><Icon name="rotate-left" size={rotateIconSize} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: rotateRight, top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); rotate(1); }}><Icon name="rotate-right" size={rotateIconSize} /><span>Rotate right</span></button></>}
+    {media.kind === 'image' && settings.showRotateControls && <><button className="ma-rotate-btn left" style={{ left: rotateLeft, top: rotateTop }} title="Rotate left" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); event.preventDefault(); rotate(-1); }}><Icon name="rotate-left" size={rotateIconSize} /><span>Rotate left</span></button><button className="ma-rotate-btn right" style={{ left: rotateRight, top: rotateTop }} title="Rotate right" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); event.preventDefault(); rotate(1); }}><Icon name="rotate-right" size={rotateIconSize} /><span>Rotate right</span></button></>}
 
     {!mergeOpen && toolbarUiVisible && quickPanel === 'resize' && media.kind === 'image' && premium && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft }}><ResizePanel settings={settings} current={transform.resize} busy={busy} templates={resizeTemplates} defaultTemplateId={settings.defaultResizePresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultResizePresetId')} onApply={(resize) => void downloadCurrent(undefined, undefined, undefined, { ...transform, resize }, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
     {!mergeOpen && toolbarUiVisible && quickPanel === 'compress' && media.kind === 'image' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><CompressPanel settings={settings} busy={busy} templates={compressTemplates} defaultTemplateId={settings.defaultCompressPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultCompressPresetId')} onDownload={(maxKB, format, quality) => void downloadCurrent(maxKB, format, quality, transform, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
     {!mergeOpen && toolbarUiVisible && quickPanel === 'pdf-compress' && media.kind === 'pdf' && <div className="ma-floating-panel" style={{ position: 'fixed', top: toolbarTop + 43, left: toolbarLeft + 42 }}><PdfCompressPanel settings={settings} busy={busy} onDownload={(maxKB, quality) => void compressCurrentPdf(maxKB, quality, 'whatsapp')} onClose={() => setQuickPanel(null)} /></div>}
-    {!mergeOpen && toolbarUiVisible && cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} sourceRect={cropSourceRect} initial={transform.crop} templates={cropTemplates} defaultTemplateId={settings.defaultCropPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultCropPresetId')} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
+    {!mergeOpen && toolbarUiVisible && cropMode && media.kind === 'image' && <CropOverlay imageRect={cropRect} sourceRect={cropSourceRect} initial={transform.crop} initialRatio={pendingPipeline ? stepOf(pendingPipeline.profile, 'crop')?.ratio : settings.defaultCropRatio} templates={cropTemplates} defaultTemplateId={settings.defaultCropPresetId} onApplyTemplate={(templateId) => void applyImageTemplate(templateId, 'defaultCropPresetId')} onCancel={() => { setCropMode(false); setPendingPipeline(null); }} onConfirm={(crop) => { const nextTransform = { ...transform, crop }; setTransform(nextTransform); setCropMode(false); if (pendingPipeline) void runPipeline(pendingPipeline.profile, pendingPipeline.source, crop); else void downloadCurrent(undefined, undefined, undefined, nextTransform, 'whatsapp'); }} />}
     {mergeOpen && <MergeWorkspace items={mergeItems} settings={settings} templates={mergeTemplates} onItemsChange={setMergeItems} onClose={() => setMergeOpen(false)} onToast={toast} />}
     <div className="ma-toast-stack">{toasts.map((item) => <div key={item.id} className={`ma-toast${item.error ? ' error' : ''}`}>{item.message}</div>)}</div>
   </div>;

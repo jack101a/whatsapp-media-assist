@@ -5,7 +5,9 @@
       </div>
       
       <div class="modal-tabs" style="margin-bottom: 16px;">
-        <button onclick="switchTemplateCatTab('image_defaults')" id="tpl-tab-image_defaults" class="modal-tab-btn active">Image Defaults</button>
+        <button onclick="switchTemplateCatTab('crop')" id="tpl-tab-crop" class="modal-tab-btn active">Crop</button>
+        <button onclick="switchTemplateCatTab('resize')" id="tpl-tab-resize" class="modal-tab-btn">Resize</button>
+        <button onclick="switchTemplateCatTab('compress')" id="tpl-tab-compress" class="modal-tab-btn">Compress</button>
         <button onclick="switchTemplateCatTab('merge_pdf')" id="tpl-tab-merge_pdf" class="modal-tab-btn">Merge & PDF</button>
         <button onclick="switchTemplateCatTab('pipelines')" id="tpl-tab-pipelines" class="modal-tab-btn">Pipelines</button>
       </div>
@@ -14,14 +16,16 @@
         <table>
           <thead>
             <tr>
+              <th style="width:92px;">Enabled</th>
               <th>Preset ID</th>
               <th>Preset Name</th>
-              <th>Configuration Size</th>
+              <th>Scope</th>
+              <th>Configuration</th>
               <th style="text-align:right;">Actions</th>
             </tr>
           </thead>
           <tbody id="templates-table-body">
-            <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">Loading presets...</td></tr>
+            <tr><td colspan="6" style="text-align:center;color:var(--text-muted);">Loading presets...</td></tr>
           </tbody>
         </table>
       </div>

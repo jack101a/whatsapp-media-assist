@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import time
 import uuid
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .config import Settings
@@ -117,9 +117,10 @@ def _profile_from_template(template_id: str, template_name: str, payload: dict) 
     return {
         'id': template_id,
         'name': template_name,
+        'tag': str(payload.get('tag', ''))[:8] or None,
         'pinned': bool(payload.get('pinned', True)),
         'inputCount': max(1, min(20, input_count)),
-        'mergeLayout': payload.get('mergeLayout') if payload.get('mergeLayout') in {'vertical', 'horizontal', 'grid'} else 'vertical',
+        'mergeLayout': payload.get('mergeLayout') if payload.get('mergeLayout') in {'vertical', 'horizontal', 'grid', 'pages'} else 'vertical',
         'background': payload.get('background') or '#ffffff',
         'steps': [_step_with_id(step) for step in steps if isinstance(step, dict)],
         'createdAt': int(time.time() * 1000),
@@ -136,7 +137,13 @@ def sync_plan_templates_to_user(db: Session, user: User, plan: Plan) -> None:
     import json as _json
 
     pipeline_templates = db.scalars(
-        select(Template).where(Template.category == 'pipelines').order_by(Template.name)
+        select(Template)
+        .where(
+            Template.category == 'pipelines',
+            Template.is_enabled.is_(True),
+            or_(Template.user_email.is_(None), Template.user_email == user.email.lower()),
+        )
+        .order_by(Template.name)
     ).all()
     if not pipeline_templates:
         return
@@ -172,89 +179,81 @@ def seed_default_templates(db: Session) -> None:
     import json
 
     defaults = [
-        # --- IMAGE DEFAULTS ---
+        # --- RESIZE / CROP / COMPRESS PRESETS ---
         {
             "id": "img-ssc-photo",
             "name": "SSC Photo (160x200)",
-            "category": "image_defaults",
+            "category": "resize",
             "payload_json": json.dumps({
-                "defaultFilenameTemplate": "ssc_photo_{datetime}",
-                "defaultFormat": "jpeg",
                 "defaultWidth": 160,
                 "defaultHeight": 200,
-                "defaultMinKB": 10,
-                "defaultMaxKB": 20,
-                "defaultQuality": 85,
-                "minimumQuality": 40,
-                "allowDimensionReduction": True,
-                "allowUpscale": False,
                 "defaultResizeFit": "contain",
-                "defaultCropRatio": "free",
-                "removeSpacesByDefault": True,
-                "removeSpecialCharactersByDefault": True
+                "allowUpscale": True
             })
         },
         {
             "id": "img-ssc-sign",
             "name": "SSC Signature (256x64)",
-            "category": "image_defaults",
+            "category": "resize",
             "payload_json": json.dumps({
-                "defaultFilenameTemplate": "ssc_sign_{datetime}",
-                "defaultFormat": "jpeg",
                 "defaultWidth": 256,
                 "defaultHeight": 64,
-                "defaultMinKB": 10,
-                "defaultMaxKB": 20,
-                "defaultQuality": 85,
-                "minimumQuality": 40,
-                "allowDimensionReduction": True,
-                "allowUpscale": False,
                 "defaultResizeFit": "contain",
-                "defaultCropRatio": "free",
-                "removeSpacesByDefault": True,
-                "removeSpecialCharactersByDefault": True
+                "allowUpscale": True
             })
         },
         {
             "id": "img-pan-photo",
             "name": "PAN Card Photo (213x213)",
-            "category": "image_defaults",
+            "category": "resize",
             "payload_json": json.dumps({
-                "defaultFilenameTemplate": "pan_photo_{datetime}",
-                "defaultFormat": "jpeg",
                 "defaultWidth": 213,
                 "defaultHeight": 213,
-                "defaultMinKB": 10,
-                "defaultMaxKB": 30,
-                "defaultQuality": 85,
-                "minimumQuality": 40,
-                "allowDimensionReduction": True,
-                "allowUpscale": False,
                 "defaultResizeFit": "contain",
-                "defaultCropRatio": "1:1",
-                "removeSpacesByDefault": True,
-                "removeSpecialCharactersByDefault": True
+                "allowUpscale": True
             })
         },
         {
             "id": "img-us-visa",
             "name": "US Visa / Passport (600x600)",
-            "category": "image_defaults",
+            "category": "resize",
             "payload_json": json.dumps({
-                "defaultFilenameTemplate": "us_visa_{datetime}",
-                "defaultFormat": "jpeg",
                 "defaultWidth": 600,
                 "defaultHeight": 600,
+                "defaultResizeFit": "contain",
+                "allowUpscale": True
+            })
+        },
+        {
+            "id": "crop-square",
+            "name": "Square crop (1:1)",
+            "category": "crop",
+            "payload_json": json.dumps({
+                "defaultCropRatio": "1:1"
+            })
+        },
+        {
+            "id": "compress-20kb-jpeg",
+            "name": "JPEG 10-20 KB",
+            "category": "compress",
+            "payload_json": json.dumps({
+                "defaultFormat": "jpeg",
+                "defaultMinKB": 10,
+                "defaultMaxKB": 20,
+                "defaultQuality": 85,
+                "minimumQuality": 35
+            })
+        },
+        {
+            "id": "compress-240kb-jpeg",
+            "name": "JPEG up to 240 KB",
+            "category": "compress",
+            "payload_json": json.dumps({
+                "defaultFormat": "jpeg",
                 "defaultMinKB": 50,
                 "defaultMaxKB": 240,
                 "defaultQuality": 90,
-                "minimumQuality": 60,
-                "allowDimensionReduction": True,
-                "allowUpscale": False,
-                "defaultResizeFit": "contain",
-                "defaultCropRatio": "1:1",
-                "removeSpacesByDefault": True,
-                "removeSpecialCharactersByDefault": True
+                "minimumQuality": 35
             })
         },
         # --- MERGE & PDF ---
@@ -264,7 +263,7 @@ def seed_default_templates(db: Session) -> None:
             "category": "merge_pdf",
             "payload_json": json.dumps({
                 "mergeDefaultLayout": "grid",
-                "mergeDefaultFormat": "pdf",
+                "mergeDefaultFormat": "jpeg",
                 "mergeDefaultMaxKB": 200,
                 "mergeDefaultQuality": 90,
                 "mergeDefaultGap": 20,
@@ -281,11 +280,28 @@ def seed_default_templates(db: Session) -> None:
             "category": "merge_pdf",
             "payload_json": json.dumps({
                 "mergeDefaultLayout": "vertical",
-                "mergeDefaultFormat": "pdf",
+                "mergeDefaultFormat": "jpeg",
                 "mergeDefaultMaxKB": 450,
                 "mergeDefaultQuality": 80,
                 "mergeDefaultGap": 10,
                 "mergeDefaultPadding": 10,
+                "mergeDefaultBorderWidth": 0,
+                "mergeDefaultBorderColor": "#ffffff",
+                "mergeDefaultBackground": "#ffffff",
+                "mergeDefaultGridColumns": 1
+            })
+        },
+        {
+            "id": "merge-original-pages-pdf",
+            "name": "Original Pages PDF",
+            "category": "merge_pdf",
+            "payload_json": json.dumps({
+                "mergeDefaultLayout": "pages",
+                "mergeDefaultFormat": "pdf",
+                "mergeDefaultMaxKB": 480,
+                "mergeDefaultQuality": 90,
+                "mergeDefaultGap": 0,
+                "mergeDefaultPadding": 0,
                 "mergeDefaultBorderWidth": 0,
                 "mergeDefaultBorderColor": "#ffffff",
                 "mergeDefaultBackground": "#ffffff",
@@ -303,7 +319,7 @@ def seed_default_templates(db: Session) -> None:
                 "inputCount": 1,
                 "steps": [
                     { "type": "crop", "mode": "ask", "ratio": "free" },
-                    { "type": "resize", "width": 160, "height": 200, "fit": "contain", "allowUpscale": False },
+                    { "type": "resize", "width": 160, "height": 200, "fit": "contain", "allowUpscale": True },
                     { "type": "format", "format": "jpeg" },
                     { "type": "compress", "minKB": 10, "maxKB": 20 },
                     { "type": "filename", "preset": "datetime", "template": "ssc_photo_{datetime}_{count}" },

@@ -16,7 +16,7 @@ from ..models import Plan, User, Subscription, Device, RefreshToken, AdminAuditL
 from ..schemas import (
     PlanCreate, PlanResponse, AdminUserResponse, AdminUserSubscriptionUpdate,
     BackupResponse, AuditLogResponse, StatsResponse, MessageResponse,
-    TemplateCreate, TemplateResponse
+    TemplateCreate, TemplateResponse, TemplateScopeUpdate
 )
 from ..services import active_subscription, sync_plan_templates_to_user
 from ..backups import (
@@ -198,6 +198,8 @@ def list_templates(db: Session = Depends(get_db)) -> List[TemplateResponse]:
         output.append(TemplateResponse(
             id=t.id, name=t.name, category=t.category,
             payload=payload,
+            is_enabled=t.is_enabled,
+            user_email=t.user_email,
             created_at=t.created_at, updated_at=t.updated_at
         ))
     return output
@@ -214,7 +216,9 @@ def create_template(payload: TemplateCreate, db: Session = Depends(get_db)) -> T
         id=payload.id,
         name=payload.name,
         category=payload.category,
-        payload_json=json.dumps(payload.payload)
+        payload_json=json.dumps(payload.payload),
+        is_enabled=payload.is_enabled,
+        user_email=payload.user_email.strip().lower() if payload.user_email else None,
     )
     db.add(template)
     db.commit()
@@ -225,6 +229,8 @@ def create_template(payload: TemplateCreate, db: Session = Depends(get_db)) -> T
     return TemplateResponse(
         id=template.id, name=template.name, category=template.category,
         payload=payload.payload,
+        is_enabled=template.is_enabled,
+        user_email=template.user_email,
         created_at=template.created_at, updated_at=template.updated_at
     )
 
@@ -239,6 +245,8 @@ def update_template(template_id: str, payload: TemplateCreate, db: Session = Dep
     template.name = payload.name
     template.category = payload.category
     template.payload_json = json.dumps(payload.payload)
+    template.is_enabled = payload.is_enabled
+    template.user_email = payload.user_email.strip().lower() if payload.user_email else None
     template.updated_at = utcnow()
 
     db.commit()
@@ -249,6 +257,39 @@ def update_template(template_id: str, payload: TemplateCreate, db: Session = Dep
     return TemplateResponse(
         id=template.id, name=template.name, category=template.category,
         payload=payload.payload,
+        is_enabled=template.is_enabled,
+        user_email=template.user_email,
+        created_at=template.created_at, updated_at=template.updated_at
+    )
+
+
+@router.patch('/templates/{template_id}/scope', response_model=TemplateResponse, dependencies=[Depends(require_admin)])
+def update_template_scope(template_id: str, payload: TemplateScopeUpdate, db: Session = Depends(get_db)) -> TemplateResponse:
+    from ..models import Template
+    template = db.get(Template, template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template.is_enabled = payload.is_enabled
+    template.user_email = payload.user_email.strip().lower() if payload.user_email else None
+    template.updated_at = utcnow()
+
+    db.commit()
+    db.refresh(template)
+
+    try:
+        parsed_payload = json.loads(template.payload_json)
+    except Exception:
+        parsed_payload = {}
+
+    scope = f"only {template.user_email}" if template.user_email else "global"
+    log_audit_action(db, "UPDATE_TEMPLATE_SCOPE", f"Updated template scope '{template.name}' ({template.id}) to {scope}; enabled={template.is_enabled}")
+
+    return TemplateResponse(
+        id=template.id, name=template.name, category=template.category,
+        payload=parsed_payload,
+        is_enabled=template.is_enabled,
+        user_email=template.user_email,
         created_at=template.created_at, updated_at=template.updated_at
     )
 
@@ -524,4 +565,3 @@ def update_system_settings(payload: dict, db: Session = Depends(get_db)) -> Mess
     db.commit()
     log_audit_action(db, "UPDATE_SYSTEM_SETTINGS", "Updated system dashboard and backup configuration settings")
     return MessageResponse(message="Settings updated successfully")
-

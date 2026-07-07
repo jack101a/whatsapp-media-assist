@@ -186,9 +186,39 @@ async function pdfFromCanvas(canvas: HTMLCanvasElement, quality: number, backgro
   return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: 'application/pdf' });
 }
 
+async function pdfFromOriginalPages(items: MergeItem[], quality: number, backgroundHex: string, id: string): Promise<Blob> {
+  const pdf = await PDFDocument.create();
+  const background = parseHex(backgroundHex);
+  for (let index = 0; index < items.length; index += 1) {
+    const source = await prepareItem(items[index]!);
+    try {
+      const imageBlob = await canvasToBlob(source, 'image/jpeg', quality);
+      const image = await pdf.embedJpg(await imageBlob.arrayBuffer());
+      const page = pdf.addPage([Math.max(1, source.width), Math.max(1, source.height)]);
+      page.drawRectangle({ x: 0, y: 0, width: source.width, height: source.height, color: rgb(background.r, background.g, background.b) });
+      page.drawImage(image, { x: 0, y: 0, width: source.width, height: source.height });
+      send({ id, type: 'progress', current: index + 1, total: items.length, note: `Adding PDF page ${index + 1}/${items.length}` });
+    } finally {
+      source.width = 1;
+      source.height = 1;
+    }
+  }
+  const bytes = await pdf.save({ useObjectStreams: true });
+  return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: 'application/pdf' });
+}
+
 async function mergeImagesInFrame(request: Extract<ProcessorRequest, { type: 'merge' }>): Promise<Blob> {
   const { items, options, id } = request;
   if (!items.length) throw new Error('Add at least one item to merge.');
+  if (options.layout === 'pages') {
+    if (options.format !== 'pdf') throw new Error('Original pages mode exports PDF only.');
+    let result = await pdfFromOriginalPages(items, options.quality, options.background || '#ffffff', id);
+    for (const quality of [0.82, 0.7, 0.58, 0.46, 0.34, 0.24, 0.16, 0.08]) {
+      if (!options.maxBytes || result.size <= options.maxBytes) break;
+      result = await pdfFromOriginalPages(items, quality, options.background || '#ffffff', id);
+    }
+    return result;
+  }
   if (options.layout === 'grid' && items.some((item) => item.sourceType === 'pdf-page')) throw new Error('Grid layout is available only for images. Use Top & bottom or Side by side for PDF pages.');
   const prepared: HTMLCanvasElement[] = [];
   for (let index = 0; index < items.length; index += 1) {

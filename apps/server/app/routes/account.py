@@ -108,7 +108,10 @@ def get_global_templates(auth: AuthContext = Depends(require_auth), db: Session 
     if not subscription:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Pro is required to sync preset templates')
     from sqlalchemy import select as sa_select
-    templates = db.scalars(sa_select(Template).order_by(Template.category, Template.name)).all()
+    templates = db.scalars(sa_select(Template).where(
+        Template.is_enabled.is_(True),
+        (Template.user_email.is_(None)) | (Template.user_email == auth.user.email.lower()),
+    ).order_by(Template.category, Template.name)).all()
     result = []
     for t in templates:
         import json

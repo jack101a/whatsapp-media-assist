@@ -8,7 +8,7 @@ export type PipelineStep =
   | { id: string; type: 'rotate'; degrees: -90 | 90 | 180 }
   | { id: string; type: 'resize'; width?: number; height?: number; fit: 'contain' | 'cover' | 'stretch'; allowUpscale: boolean }
   | { id: string; type: 'format'; format: ImageFormat | 'pdf' }
-  | { id: string; type: 'compress'; minKB?: number; maxKB?: number }
+  | { id: string; type: 'compress'; minKB?: number; maxKB?: number; allowDimensionReduction?: boolean }
   | { id: string; type: 'filename'; preset: FilenamePreset; template: string; prefix?: string; removeSpaces: boolean; removeSpecialCharacters: boolean }
   | { id: string; type: 'download'; automatic: boolean };
 

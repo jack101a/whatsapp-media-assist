@@ -90,11 +90,13 @@ function ensureFrame(): Promise<void> {
   return frameReady;
 }
 
-function scheduleIdleShutdown(): void {
+export function scheduleIdleShutdown(): void {
   if (idleTimer) window.clearTimeout(idleTimer);
+  // Keep the processor iframe alive for 30 s to avoid repeated startup overhead
+  // on rapid sequential operations (e.g., rotate + download, then another).
   idleTimer = window.setTimeout(() => {
     if (pending.size === 0) terminateProcessor();
-  }, 3000);
+  }, 30_000);
 }
 
 async function requestProcessor(request: ProcessorRequestInput, onProgress?: (current: number, total: number, note: string) => void): Promise<Blob | MergeItem[]> {

@@ -185,7 +185,7 @@ let activeTab = 'analytics';
             <td>${planBadge}</td>
             <td>${expiryDate}</td>
             <td>
-              <button onclick="openDeviceManager('${u.id}')" class="btn sm" style="padding:4px 8px;">
+                <button onclick="openDeviceManager('${u.id}', '${u.email}')" class="btn sm" style="padding:4px 8px;">
                 <span>${u.device_count} Active</span>
               </button>
             </td>
@@ -312,13 +312,17 @@ let activeTab = 'analytics';
     }
 
     // Devices Manager
-    async function openDeviceManager(userId) {
+    async function openDeviceManager(userId, email = "") {
       document.getElementById("device-modal-user-id").value = userId;
+      document.getElementById("device-modal-user-email").value = email;
       const listDiv = document.getElementById("device-modal-list");
       listDiv.innerHTML = "<p style='color:var(--text-muted);'>Loading devices...</p>";
+      renderUserTemplateScope(email);
       openModal("device-modal");
 
       try {
+        if (!cachedTemplates.length) cachedTemplates = await apiRequest("/v1/admin/dashboard/templates");
+        renderUserTemplateScope(email);
         const devices = await apiRequest(`/v1/admin/dashboard/users/${userId}/devices`);
         listDiv.innerHTML = "";
         if (!devices.length) {
@@ -347,7 +351,73 @@ let activeTab = 'analytics';
       try {
         await apiRequest(`/v1/admin/dashboard/users/${userId}/devices/${deviceId}`, "DELETE");
         showToast("Device revoked", "success");
-        openDeviceManager(userId);
+        openDeviceManager(userId, document.getElementById("device-modal-user-email").value);
+      } catch (err) {}
+    }
+
+    function renderUserTemplateScope(email) {
+      const list = document.getElementById("user-template-list");
+      const select = document.getElementById("user-template-select");
+      if (!list || !select) return;
+      const normalized = (email || "").toLowerCase();
+      const assigned = cachedTemplates.filter(t => (t.user_email || "").toLowerCase() === normalized);
+
+      list.innerHTML = assigned.length ? "" : `<p style="margin:0;color:var(--text-muted);font-size:12px;">No user-specific templates assigned.</p>`;
+      assigned.forEach(t => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px;";
+        row.innerHTML = `
+          <div>
+            <strong>${t.name}</strong><br>
+            <small style="color:var(--text-muted);">${t.category} · ${t.id}</small>
+          </div>
+          <button onclick="clearTemplateUserScope('${t.id}')" class="btn sm">Make Global</button>
+        `;
+        list.appendChild(row);
+      });
+
+      select.innerHTML = "";
+      cachedTemplates.forEach(t => {
+        const option = document.createElement("option");
+        option.value = t.id;
+        option.textContent = `${t.name} (${t.category})`;
+        select.appendChild(option);
+      });
+    }
+
+    async function updateTemplateScope(templateId, patch) {
+      const existing = cachedTemplates.find(t => t.id === templateId);
+      if (!existing) {
+        showToast("Template not found. Refresh and try again.", "error");
+        return null;
+      }
+      const updated = await apiRequest(`/v1/admin/dashboard/templates/${templateId}/scope`, "PATCH", {
+        is_enabled: patch.is_enabled ?? (existing.is_enabled !== false),
+        user_email: patch.hasOwnProperty("user_email") ? patch.user_email : (existing.user_email || null)
+      });
+      cachedTemplates = cachedTemplates.map(t => t.id === updated.id ? updated : t);
+      return updated;
+    }
+
+    async function assignTemplateToCurrentUser() {
+      const templateId = document.getElementById("user-template-select").value;
+      const email = document.getElementById("device-modal-user-email").value;
+      if (!templateId || !email) return showToast("Select a template and user first.", "error");
+      try {
+        await updateTemplateScope(templateId, { user_email: email.toLowerCase() });
+        renderUserTemplateScope(email);
+        if (activeTab === "templates") await loadTemplates();
+        showToast("Template assigned to user", "success");
+      } catch (err) {}
+    }
+
+    async function clearTemplateUserScope(templateId) {
+      const email = document.getElementById("device-modal-user-email").value;
+      try {
+        await updateTemplateScope(templateId, { user_email: null });
+        renderUserTemplateScope(email);
+        if (activeTab === "templates") await loadTemplates();
+        showToast("Template is global again", "success");
       } catch (err) {}
     }
 
@@ -494,7 +564,7 @@ let activeTab = 'analytics';
     }
 
     // --- TAB 4: TEMPLATES CRUD ---
-    let currentTemplateCatTab = 'image_defaults';
+    let currentTemplateCatTab = 'crop';
 
     function switchTemplateCatTab(cat) {
       document.querySelectorAll('#panel-templates .modal-tab-btn').forEach(b => b.classList.remove('active'));
@@ -510,7 +580,7 @@ let activeTab = 'analytics';
         const tbody = document.getElementById("templates-table-body");
         tbody.innerHTML = "";
         
-        const filtered = templates.filter(t => t.category === currentTemplateCatTab);
+        const filtered = templates.filter(t => templateMatchesCategory(t, currentTemplateCatTab));
         
         if (!filtered.length) {
           tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">No presets found in this category.</td></tr>`;
@@ -524,7 +594,7 @@ let activeTab = 'analytics';
             
             tr.innerHTML = `
               <td><code style="font-family:monospace;font-weight:bold;">${t.id}</code></td>
-              <td><strong>${t.name}</strong></td>
+              <td><strong>${t.name}</strong><br><small style="color:var(--text-muted);">${t.is_enabled === false ? 'Disabled' : 'Enabled'} · ${t.user_email ? `Only ${t.user_email}` : 'Global'}</small></td>
               <td>${size} configuration keys/steps</td>
               <td style="text-align:right;">
                 <div style="display:inline-flex;gap:8px;">
@@ -538,13 +608,80 @@ let activeTab = 'analytics';
       } catch (err) {}
     }
 
+    function templateSummary(template) {
+      const payload = template.payload || {};
+      if (template.category === "crop") return `Ratio ${payload.defaultCropRatio || "free"}`;
+      if (template.category === "resize") return `${payload.defaultWidth || "auto"} x ${payload.defaultHeight || "auto"} - ${payload.defaultResizeFit || "contain"}`;
+      if (template.category === "compress") return `${(payload.defaultFormat || "jpeg").toUpperCase()} - max ${payload.defaultMaxKB || "-"} KB - quality ${payload.defaultQuality || 90}`;
+      if (template.category === "merge_pdf") return `${payload.mergeDefaultLayout || "vertical"} - ${(payload.mergeDefaultFormat || "jpeg").toUpperCase()} - max ${payload.mergeDefaultMaxKB || 480} KB`;
+      if (template.category === "pipelines") {
+        const steps = Array.isArray(payload.steps) ? payload.steps.map(step => step.type).join(" -> ") : "No steps";
+        return `${payload.inputCount || 1} media - ${steps}`;
+      }
+      return `${Object.keys(payload).length} settings`;
+    }
+
+    async function loadTemplates() {
+      try {
+        const templates = await apiRequest("/v1/admin/dashboard/templates");
+        cachedTemplates = templates;
+        const tbody = document.getElementById("templates-table-body");
+        tbody.innerHTML = "";
+
+        const filtered = templates.filter(t => templateMatchesCategory(t, currentTemplateCatTab));
+
+        if (!filtered.length) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No presets found in this category.</td></tr>`;
+          return;
+        }
+
+        filtered.forEach(t => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>
+              <label class="switch" style="min-height:34px;padding:0 46px 0 0;background:transparent;border:0;">
+                <input type="checkbox" ${t.is_enabled === false ? "" : "checked"} onchange="toggleTemplateEnabled('${t.id}', this.checked)">
+                <span class="slider"></span>
+              </label>
+            </td>
+            <td><code style="font-family:monospace;font-weight:bold;">${t.id}</code></td>
+            <td><strong>${t.name}</strong></td>
+            <td>${t.user_email ? `<span class="badge active">Only ${t.user_email}</span>` : `<span style="color:var(--text-muted);font-size:12px;">Global</span>`}</td>
+            <td>${templateSummary(t)}</td>
+            <td style="text-align:right;">
+              <div style="display:inline-flex;gap:8px;">
+                <button onclick="openEditTemplateModal('${t.id}')" class="btn sm">Edit</button>
+                <button onclick="deleteTemplate('${t.id}')" class="btn sm danger">Delete</button>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {}
+    }
+
+    async function toggleTemplateEnabled(templateId, enabled) {
+      try {
+        await updateTemplateScope(templateId, { is_enabled: enabled });
+        if (document.getElementById("device-modal").classList.contains("active")) {
+          renderUserTemplateScope(document.getElementById("device-modal-user-email").value);
+        }
+        showToast(enabled ? "Template enabled" : "Template disabled", "success");
+      } catch (err) {
+        await loadTemplates();
+      }
+    }
+
     const templateTabByCategory = {
       image_defaults: 'imagedefs',
+      crop: 'imagedefs',
+      resize: 'imagedefs',
+      compress: 'imagedefs',
       merge_pdf: 'mergepdf',
       pipelines: 'pipelines'
     };
     const templateCategoryByTab = {
-      imagedefs: 'image_defaults',
+      imagedefs: 'crop',
       mergepdf: 'merge_pdf',
       pipelines: 'pipelines'
     };
@@ -568,19 +705,88 @@ let activeTab = 'analytics';
       document.getElementById(`modal-sec-${tabId}`).classList.add("active");
 
       currentModalTab = tabId;
-      document.getElementById("template-modal-category").value = templateCategoryByTab[tabId] || currentTemplateCatTab;
+      document.getElementById("template-modal-category").value = tabId === "imagedefs" ? currentTemplateCatTab : (templateCategoryByTab[tabId] || currentTemplateCatTab);
+      updateTemplateFlowFields(document.getElementById("template-modal-category").value);
+    }
+
+    function updateTemplateFlowFields(category) {
+      const activeFlow = category === "image_defaults" ? "all" : category;
+      document.querySelectorAll("#modal-sec-imagedefs [data-flow]").forEach(el => {
+        const flow = el.getAttribute("data-flow");
+        const visible = activeFlow === "all" || flow === activeFlow || (activeFlow === "compress" && flow === "filename");
+        el.style.display = visible ? "" : "none";
+      });
+      const labels = {
+        crop: "Crop preset settings",
+        resize: "Resize preset settings",
+        compress: "Compression preset settings",
+        image_defaults: "Legacy image defaults",
+      };
+      const btn = document.getElementById("tab-btn-imagedefs");
+      if (btn) btn.textContent = labels[category] || "Preset Settings";
+    }
+
+    function pipelineStep(payload, type) {
+      return Array.isArray(payload.steps) ? payload.steps.find(step => step && step.type === type) : null;
+    }
+
+    function setCheckbox(id, checked) {
+      document.getElementById(id).checked = Boolean(checked);
+    }
+
+    function fillPipelineForm(payload = {}) {
+      document.getElementById("pipeline-tag").value = payload.tag || "";
+      setNumberValue("pipeline-input-count", payload.inputCount, 1);
+      document.getElementById("pipeline-merge-layout").value = payload.mergeLayout || "vertical";
+      document.getElementById("pipeline-background").value = payload.background || "#ffffff";
+      setCheckbox("pipeline-pinned", payload.pinned !== false);
+
+      const crop = pipelineStep(payload, "crop");
+      setCheckbox("pipeline-step-crop", Boolean(crop));
+      document.getElementById("pipeline-crop-mode").value = crop?.mode || "ask";
+      document.getElementById("pipeline-crop-ratio").value = crop?.ratio || "free";
+
+      const rotate = pipelineStep(payload, "rotate");
+      setCheckbox("pipeline-step-rotate", Boolean(rotate));
+      document.getElementById("pipeline-rotate-degrees").value = String(rotate?.degrees || 90);
+
+      const resize = pipelineStep(payload, "resize");
+      setCheckbox("pipeline-step-resize", Boolean(resize));
+      setNumberValue("pipeline-resize-width", resize?.width);
+      setNumberValue("pipeline-resize-height", resize?.height);
+      document.getElementById("pipeline-resize-fit").value = resize?.fit || "contain";
+
+      const format = pipelineStep(payload, "format");
+      setCheckbox("pipeline-step-format", format !== null || !Array.isArray(payload.steps));
+      document.getElementById("pipeline-format").value = format?.format || "jpeg";
+
+      const compress = pipelineStep(payload, "compress");
+      setCheckbox("pipeline-step-compress", compress !== null || !Array.isArray(payload.steps));
+      setNumberValue("pipeline-min-kb", compress?.minKB);
+      setNumberValue("pipeline-max-kb", compress?.maxKB, 180);
+
+      const filename = pipelineStep(payload, "filename");
+      setCheckbox("pipeline-step-filename", Boolean(filename));
+      document.getElementById("pipeline-filename-template").value = filename?.template || "{profile}_{datetime}";
+      document.getElementById("pipeline-filename-prefix").value = filename?.prefix || "";
+      setCheckbox("pipeline-remove-spaces", Boolean(filename?.removeSpaces));
+      setCheckbox("pipeline-remove-special", filename?.removeSpecialCharacters !== false);
+
+      const download = pipelineStep(payload, "download");
+      setCheckbox("pipeline-step-download", download !== null || !Array.isArray(payload.steps));
     }
 
     function fillTemplateForm(category, payload = {}) {
       document.getElementById("imgdef-format").value = payload.defaultFormat || "jpeg";
+      setNumberValue("imgdef-width", payload.defaultWidth);
+      setNumberValue("imgdef-height", payload.defaultHeight);
       setNumberValue("imgdef-maxkb", payload.defaultMaxKB, 180);
       document.getElementById("imgdef-crop").value = payload.defaultCropRatio || "free";
       setNumberValue("imgdef-quality", payload.defaultQuality, 90);
       setNumberValue("imgdef-minquality", payload.minimumQuality, 35);
       document.getElementById("imgdef-resizefit").value = payload.defaultResizeFit || "contain";
       document.getElementById("imgdef-filename").value = payload.defaultFilenameTemplate || "{datetime}";
-      document.getElementById("imgdef-allowdim").checked = payload.allowDimensionReduction !== false;
-      document.getElementById("imgdef-allowupscale").checked = payload.allowUpscale !== false;
+      updateTemplateFlowFields(category);
 
       document.getElementById("merge-layout").value = payload.mergeDefaultLayout || "vertical";
       document.getElementById("merge-format").value = payload.mergeDefaultFormat || "jpeg";
@@ -593,31 +799,96 @@ let activeTab = 'analytics';
       document.getElementById("merge-background").value = payload.mergeDefaultBackground || "#ffffff";
       setNumberValue("merge-gridcols", payload.mergeDefaultGridColumns, 2);
 
-      document.getElementById("template-modal-pipelines").value = JSON.stringify(payload.steps ? payload : {
-        inputCount: 1,
-        pinned: true,
-        mergeLayout: "vertical",
-        background: "#ffffff",
-        steps: [
-          { type: "format", format: "jpeg" },
-          { type: "compress", maxKB: 180 },
-          { type: "download", automatic: true }
-        ]
-      }, null, 2);
-
+      fillPipelineForm(payload);
       switchModalTab(templateTabByCategory[category] || "imagedefs");
     }
 
+    function readPipelinePayload() {
+      const steps = [];
+      if (document.getElementById("pipeline-step-crop").checked) {
+        steps.push({
+          type: "crop",
+          mode: document.getElementById("pipeline-crop-mode").value,
+          ratio: document.getElementById("pipeline-crop-ratio").value
+        });
+      }
+      if (document.getElementById("pipeline-step-rotate").checked) {
+        steps.push({
+          type: "rotate",
+          degrees: Number(document.getElementById("pipeline-rotate-degrees").value) || 90
+        });
+      }
+      if (document.getElementById("pipeline-step-resize").checked) {
+        steps.push({
+          type: "resize",
+          width: getNumberValue("pipeline-resize-width"),
+          height: getNumberValue("pipeline-resize-height"),
+          fit: document.getElementById("pipeline-resize-fit").value,
+          allowUpscale: true
+        });
+      }
+      if (document.getElementById("pipeline-step-format").checked) {
+        steps.push({
+          type: "format",
+          format: document.getElementById("pipeline-format").value
+        });
+      }
+      if (document.getElementById("pipeline-step-compress").checked) {
+        steps.push({
+          type: "compress",
+          minKB: getNumberValue("pipeline-min-kb"),
+          maxKB: getNumberValue("pipeline-max-kb")
+        });
+      }
+      if (document.getElementById("pipeline-step-filename").checked) {
+        steps.push({
+          type: "filename",
+          preset: "advanced",
+          template: document.getElementById("pipeline-filename-template").value.trim() || "{profile}_{datetime}",
+          prefix: document.getElementById("pipeline-filename-prefix").value.trim() || undefined,
+          removeSpaces: document.getElementById("pipeline-remove-spaces").checked,
+          removeSpecialCharacters: document.getElementById("pipeline-remove-special").checked
+        });
+      }
+      if (document.getElementById("pipeline-step-download").checked) {
+        steps.push({ type: "download", automatic: true });
+      }
+      if (!steps.length) {
+        showToast("Add at least one pipeline step.", "error");
+        throw new Error("Pipeline has no steps");
+      }
+      return {
+        tag: document.getElementById("pipeline-tag").value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 8) || undefined,
+        inputCount: Math.max(1, Math.min(20, getNumberValue("pipeline-input-count", 1))),
+        pinned: document.getElementById("pipeline-pinned").checked,
+        mergeLayout: document.getElementById("pipeline-merge-layout").value,
+        background: document.getElementById("pipeline-background").value.trim() || "#ffffff",
+        steps
+      };
+    }
+
     function readTemplatePayload(category) {
-      if (category === "image_defaults") {
+      if (category === "crop") {
+        return { defaultCropRatio: document.getElementById("imgdef-crop").value };
+      }
+      if (category === "resize") {
+        return {
+          defaultWidth: getNumberValue("imgdef-width"),
+          defaultHeight: getNumberValue("imgdef-height"),
+          defaultResizeFit: document.getElementById("imgdef-resizefit").value,
+          allowUpscale: true
+        };
+      }
+      if (category === "compress" || category === "image_defaults") {
         return {
           defaultFilenameTemplate: document.getElementById("imgdef-filename").value.trim() || "{datetime}",
           defaultFormat: document.getElementById("imgdef-format").value,
+          defaultWidth: getNumberValue("imgdef-width"),
+          defaultHeight: getNumberValue("imgdef-height"),
           defaultMaxKB: getNumberValue("imgdef-maxkb"),
           defaultQuality: getNumberValue("imgdef-quality", 90),
           minimumQuality: getNumberValue("imgdef-minquality", 35),
-          allowDimensionReduction: document.getElementById("imgdef-allowdim").checked,
-          allowUpscale: document.getElementById("imgdef-allowupscale").checked,
+          allowUpscale: true,
           defaultResizeFit: document.getElementById("imgdef-resizefit").value,
           defaultCropRatio: document.getElementById("imgdef-crop").value,
           removeSpacesByDefault: false,
@@ -625,9 +896,10 @@ let activeTab = 'analytics';
         };
       }
       if (category === "merge_pdf") {
+        const mergeLayout = document.getElementById("merge-layout").value;
         return {
-          mergeDefaultLayout: document.getElementById("merge-layout").value,
-          mergeDefaultFormat: document.getElementById("merge-format").value,
+          mergeDefaultLayout: mergeLayout,
+          mergeDefaultFormat: mergeLayout === "pages" ? "pdf" : document.getElementById("merge-format").value,
           mergeDefaultMaxKB: getNumberValue("merge-maxkb"),
           mergeDefaultQuality: getNumberValue("merge-quality", 90),
           mergeDefaultGap: getNumberValue("merge-gap", 36),
@@ -638,13 +910,7 @@ let activeTab = 'analytics';
           mergeDefaultGridColumns: getNumberValue("merge-gridcols", 2)
         };
       }
-      try {
-        const parsed = JSON.parse(document.getElementById("template-modal-pipelines").value || "{}");
-        return Array.isArray(parsed) ? { steps: parsed } : parsed;
-      } catch (e) {
-        showToast("Invalid JSON syntax in pipeline payload.", "error");
-        throw e;
-      }
+      return readPipelinePayload();
     }
 
     function openCreateTemplateModal() {
@@ -678,12 +944,13 @@ let activeTab = 'analytics';
       const id = document.getElementById("template-modal-id").value.trim().toLowerCase();
       const name = document.getElementById("template-modal-name").value.trim();
       const category = document.getElementById("template-modal-category").value.trim();
+      const existing = cachedTemplates.find(t => t.id === id);
 
       if (!id || !name) {
         showToast("ID and Template Name are required.", "error");
         return;
       }
-      if (!["image_defaults", "merge_pdf", "pipelines"].includes(category)) {
+      if (!["crop", "resize", "compress", "image_defaults", "merge_pdf", "pipelines"].includes(category)) {
         showToast("Choose a valid template category tab.", "error");
         return;
       }
@@ -695,7 +962,14 @@ let activeTab = 'analytics';
         return;
       }
 
-      const requestPayload = { id, name, category, payload };
+      const requestPayload = {
+        id,
+        name,
+        category,
+        payload,
+        is_enabled: existing ? existing.is_enabled !== false : true,
+        user_email: existing?.user_email || null
+      };
 
       try {
         if (mode === 'create') {
@@ -708,6 +982,16 @@ let activeTab = 'analytics';
         closeModal("template-modal");
         await loadTemplates();
       } catch (err) {}
+    }
+
+    function templateMatchesCategory(template, category) {
+      if (template.category === category) return true;
+      if (template.category !== "image_defaults") return false;
+      const payload = template.payload || {};
+      if (category === "crop") return Boolean(payload.defaultCropRatio && payload.defaultCropRatio !== "free" && payload.defaultCropRatio !== "original");
+      if (category === "resize") return Boolean(payload.defaultWidth || payload.defaultHeight);
+      if (category === "compress") return Boolean(payload.defaultMaxKB || payload.defaultQuality || payload.defaultFormat);
+      return false;
     }
 
     async function deleteTemplate(templateId) {

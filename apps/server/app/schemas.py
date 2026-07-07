@@ -128,6 +128,8 @@ class TemplateCreate(BaseModel):
     name: str
     category: str
     payload: dict | list
+    is_enabled: bool = True
+    user_email: str | None = None
 
 
 class TemplateResponse(BaseModel):
@@ -135,10 +137,17 @@ class TemplateResponse(BaseModel):
     name: str
     category: str
     payload: dict | list
+    is_enabled: bool = True
+    user_email: str | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TemplateScopeUpdate(BaseModel):
+    is_enabled: bool
+    user_email: str | None = None
 
 
 class PlanCreate(BaseModel):

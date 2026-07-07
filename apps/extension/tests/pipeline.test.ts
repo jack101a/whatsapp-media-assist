@@ -21,7 +21,7 @@ describe('pipeline validation', () => {
       step({ id: '5', type: 'filename', preset: 'datetime', template: '{datetime}', removeSpaces: true, removeSpecialCharacters: true }),
       step({ id: '6', type: 'download', automatic: true }),
     ]);
-    expect(validatePipeline(value)).toEqual([]);
+    expect(validatePipeline(value)).toEqual({ errors: [], warnings: [] });
   });
 
   it('rejects duplicates and invalid ordering', () => {
@@ -30,8 +30,17 @@ describe('pipeline validation', () => {
       step({ id: '2', type: 'resize', width: 800, fit: 'contain', allowUpscale: false }),
       step({ id: '3', type: 'resize', height: 900, fit: 'contain', allowUpscale: false }),
     ]);
-    expect(validatePipeline(value).join(' ')).toMatch(/Only one resize/);
-    expect(validatePipeline(value).join(' ')).toMatch(/Download must be the final step/);
+    expect(validatePipeline(value).errors.join(' ')).toMatch(/Only one resize/);
+    expect(validatePipeline(value).errors.join(' ')).toMatch(/Download must be the final step/);
+  });
+
+  it('warns when both crop and resize cover exist', () => {
+    const value = profile([
+      step({ id: '1', type: 'crop', mode: 'preset', ratio: '1:1' }),
+      step({ id: '2', type: 'resize', width: 800, fit: 'cover', allowUpscale: false }),
+    ]);
+    const validation = validatePipeline(value);
+    expect(validation.warnings.join(' ')).toMatch(/Both crop and resize/);
   });
 
   it('offers only step types not already used', () => {

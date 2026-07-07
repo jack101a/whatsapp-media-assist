@@ -77,6 +77,8 @@ class Template(Base):
     name: Mapped[str] = mapped_column(String(100))
     category: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     payload_json: Mapped[str] = mapped_column(Text, default='{}')
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    user_email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -156,5 +158,4 @@ class SystemSetting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
-
 

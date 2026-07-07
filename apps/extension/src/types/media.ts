@@ -1,5 +1,5 @@
 export type ImageFormat = 'jpeg' | 'png' | 'webp';
-export type MergeLayout = 'vertical' | 'horizontal' | 'grid';
+export type MergeLayout = 'vertical' | 'horizontal' | 'grid' | 'pages';
 
 export interface NormalizedCrop {
   x: number;
@@ -22,14 +22,14 @@ export interface CompressionSettings {
   maxBytes?: number;
   preferredQuality: number;
   minimumQuality: number;
-  allowDimensionReduction: boolean;
 }
 
 
 export type CanvasOperation =
   | { type: 'rotate'; degrees: -90 | 90 | 180 | 270 }
   | { type: 'crop'; crop?: NormalizedCrop; ratio?: number }
-  | { type: 'resize'; settings: ResizeSettings };
+  | { type: 'resize'; settings: ResizeSettings }
+  | { type: 'sizefit'; format: ImageFormat; maxBytes: number; minBytes?: number; preferredQuality: number; minimumQuality: number; allowDimensionReduction?: boolean };
 
 export interface ImageTransform {
   rotation: 0 | 90 | 180 | 270;
@@ -49,6 +49,7 @@ export interface ProcessedMedia {
   format: ImageFormat;
   quality?: number;
   warnings: string[];
+  sizeUnreachable?: boolean;
 }
 
 export interface ItemPlacement {
@@ -71,6 +72,7 @@ export interface MergeOptions {
   gridColumns: number;
   quality: number;
   maxBytes?: number;
+  minBytes?: number;
 }
 
 export interface MergeItem {

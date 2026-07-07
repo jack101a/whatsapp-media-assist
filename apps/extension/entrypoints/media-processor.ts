@@ -137,27 +137,102 @@ async function pdfFromCanvas(output: OffscreenCanvas, quality: number, backgroun
   return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: 'application/pdf' });
 }
 
+async function pdfFromOriginalPages(items: MergeItem[], quality: number, backgroundHex: string, id: string): Promise<Blob> {
+  if (!items.length) throw new Error('Add at least one item to merge.');
+  const pdf = await PDFDocument.create();
+  const background = parseHex(backgroundHex);
+  for (let index = 0; index < items.length; index += 1) {
+    const source = await prepareItem(items[index]!);
+    try {
+      const imageBlob = await source.convertToBlob({ type: 'image/jpeg', quality });
+      const image = await pdf.embedJpg(await imageBlob.arrayBuffer());
+      const page = pdf.addPage([Math.max(1, source.width), Math.max(1, source.height)]);
+      page.drawRectangle({ x: 0, y: 0, width: source.width, height: source.height, color: rgb(background.r, background.g, background.b) });
+      page.drawImage(image, { x: 0, y: 0, width: source.width, height: source.height });
+      post({ id, type: 'progress', current: index + 1, total: items.length, note: `Adding PDF page ${index + 1}/${items.length}` });
+    } finally {
+      source.width = 1;
+      source.height = 1;
+    }
+  }
+  const bytes = await pdf.save({ useObjectStreams: true });
+  return new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], { type: 'application/pdf' });
+}
+
 async function merge(items: MergeItem[], options: MergeOptions, id: string): Promise<Blob> {
+  if (options.layout === 'pages') {
+    if (options.format !== 'pdf') throw new Error('Original pages mode exports PDF only.');
+    let result = await pdfFromOriginalPages(items, options.quality, options.background, id);
+    for (const quality of [0.82, 0.7, 0.58, 0.46, 0.34, 0.24, 0.16, 0.08]) {
+      if (!options.maxBytes || result.size <= options.maxBytes) break;
+      result = await pdfFromOriginalPages(items, quality, options.background, id);
+    }
+    return result;
+  }
   const output = await mergeToCanvas(items, options, id);
   try {
     if (options.format === 'pdf') {
       let result = await pdfFromCanvas(output, options.quality, options.background);
-      for (const quality of [0.82, 0.7, 0.58, 0.46, 0.36]) {
+      for (const quality of [0.82, 0.7, 0.58, 0.46, 0.34, 0.24, 0.16, 0.08]) {
         if (!options.maxBytes || result.size <= options.maxBytes) break;
         result = await pdfFromCanvas(output, quality, options.background);
       }
       return result;
     }
-    if (!options.maxBytes || options.format === 'png') return output.convertToBlob({ type: `image/${options.format}`, quality: options.quality });
-    let low = 0.34;
-    let high = Math.max(low, options.quality);
-    let best = await output.convertToBlob({ type: `image/${options.format}`, quality: low });
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const quality = (low + high) / 2;
-      const candidate = await output.convertToBlob({ type: `image/${options.format}`, quality });
-      if (candidate.size <= options.maxBytes) { best = candidate; low = quality; } else high = quality;
+    if (options.format === 'png') {
+      return output.convertToBlob({ type: 'image/png' });
     }
-    return best;
+
+    const type = `image/${options.format}`;
+    const preferred = Math.max(0.05, Math.min(1, options.quality));
+    const maxBytes = options.maxBytes;
+    const minBytes = options.minBytes;
+
+    const preferredBlob = await output.convertToBlob({ type, quality: preferred });
+    const fitsMax = !maxBytes || preferredBlob.size <= maxBytes;
+    const fitsMin = !minBytes || preferredBlob.size >= minBytes;
+    if (fitsMax && fitsMin) {
+      return preferredBlob;
+    }
+
+    let low = 0.05;
+    let high = preferred;
+    let bestBlob = await output.convertToBlob({ type, quality: low });
+    let bestQuality = low;
+
+    if (maxBytes && bestBlob.size > maxBytes) {
+      return bestBlob;
+    }
+
+    for (let attempt = 0; attempt < 14; attempt += 1) {
+      const quality = (low + high) / 2;
+      const candidate = await output.convertToBlob({ type, quality });
+      if (!maxBytes || candidate.size <= maxBytes) {
+        bestBlob = candidate;
+        bestQuality = quality;
+        low = quality;
+      } else {
+        high = quality;
+      }
+    }
+
+    if (minBytes && bestBlob.size < minBytes && bestQuality < 1) {
+      low = bestQuality;
+      high = 1;
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const quality = (low + high) / 2;
+        const candidate = await output.convertToBlob({ type, quality });
+        if (!maxBytes || candidate.size <= maxBytes) {
+          bestBlob = candidate;
+          bestQuality = quality;
+          low = quality;
+        } else {
+          high = quality;
+        }
+      }
+    }
+
+    return bestBlob;
   } finally {
     output.width = 1;
     output.height = 1;

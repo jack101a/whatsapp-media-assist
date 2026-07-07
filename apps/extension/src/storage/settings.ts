@@ -121,7 +121,7 @@ const LEGACY_IMAGE_TEMPLATE_LEAKS = [
 ];
 
 function normalizeLayout(value: unknown): MergeLayout {
-  if (value === 'horizontal' || value === 'grid') return value;
+  if (value === 'horizontal' || value === 'grid' || value === 'pages') return value;
   return 'vertical';
 }
 
@@ -130,7 +130,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
   if (input?.autoOpenMergeWorkspace === true) merged.autoOpenMergeWorkspace = false;
   if (input?.defaultMaxKB === 200) merged.defaultMaxKB = DEFAULT_SETTINGS.defaultMaxKB;
   if (input?.defaultQuality === 92) merged.defaultQuality = DEFAULT_SETTINGS.defaultQuality;
-  if (input?.mergeDefaultFormat === 'pdf') merged.mergeDefaultFormat = DEFAULT_SETTINGS.mergeDefaultFormat;
+  if (input?.mergeDefaultFormat === 'pdf' && input?.mergeDefaultLayout !== 'pages') merged.mergeDefaultFormat = DEFAULT_SETTINGS.mergeDefaultFormat;
   if (input?.mergeDefaultMaxKB === 500) merged.mergeDefaultMaxKB = DEFAULT_SETTINGS.mergeDefaultMaxKB;
   if (LEGACY_IMAGE_TEMPLATE_LEAKS.some((template) => (
     merged.defaultFilenameTemplate === template.filename
@@ -140,6 +140,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
     merged.defaultFilenameTemplate = DEFAULT_SETTINGS.defaultFilenameTemplate;
   }
   merged.mergeDefaultLayout = normalizeLayout(input?.mergeDefaultLayout);
+  if (merged.mergeDefaultLayout === 'pages') merged.mergeDefaultFormat = 'pdf';
   merged.defaultQuality = Math.max(35, Math.min(100, Number(merged.defaultQuality) || DEFAULT_SETTINGS.defaultQuality));
   merged.minimumQuality = Math.max(20, Math.min(90, Number(merged.minimumQuality) || DEFAULT_SETTINGS.minimumQuality));
   merged.mergeDefaultQuality = Math.max(35, Math.min(100, Number(merged.mergeDefaultQuality) || DEFAULT_SETTINGS.mergeDefaultQuality));
@@ -168,6 +169,16 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
         if (Array.isArray(profile.steps)) {
           return {
             ...profile,
+            steps: profile.steps.map((step: any) => {
+              if (step?.type === 'resize') return { ...step, allowUpscale: true };
+              if (step?.type === 'compress') {
+                return {
+                  ...step,
+                  allowDimensionReduction: step.allowDimensionReduction !== undefined ? Boolean(step.allowDimensionReduction) : true,
+                };
+              }
+              return step;
+            }),
             tag: typeof profile.tag === 'string' ? profile.tag.slice(0, 8) : undefined,
             inputCount: Math.max(1, Math.min(20, Number(profile.inputCount) || 1)),
             mergeLayout: normalizeLayout(profile.mergeLayout),
@@ -177,7 +188,7 @@ export function normalizeSettings(input?: Partial<AppSettings>): AppSettings {
         if (profile.cropRatio) steps.push({ id: crypto.randomUUID(), type: 'crop', mode: 'preset', ratio: profile.cropRatio });
         if (profile.width || profile.height) steps.push({ id: crypto.randomUUID(), type: 'resize', width: profile.width, height: profile.height, fit: 'contain', allowUpscale: true });
         steps.push({ id: crypto.randomUUID(), type: 'format', format: profile.format ?? 'jpeg' });
-        if (profile.minKB || profile.maxKB) steps.push({ id: crypto.randomUUID(), type: 'compress', minKB: profile.minKB, maxKB: profile.maxKB });
+        if (profile.minKB || profile.maxKB) steps.push({ id: crypto.randomUUID(), type: 'compress', minKB: profile.minKB, maxKB: profile.maxKB, allowDimensionReduction: true });
         steps.push({ id: crypto.randomUUID(), type: 'filename', preset: 'advanced', template: profile.filenameTemplate ?? '{datetime}', removeSpaces: Boolean(profile.removeSpaces), removeSpecialCharacters: profile.removeSpecialCharacters !== false });
         steps.push({ id: crypto.randomUUID(), type: 'download', automatic: profile.autoDownload !== false });
         return {
