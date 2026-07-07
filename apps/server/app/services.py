@@ -345,8 +345,14 @@ def seed_default_templates(db: Session) -> None:
     ]
 
     for d in defaults:
-        if not db.get(Template, d["id"]):
+        t = db.get(Template, d["id"])
+        if not t:
             t = Template(**d)
             db.add(t)
+        else:
+            t.name = d["name"]
+            t.category = d["category"]
+            t.payload_json = d["payload_json"]
+            t.updated_at = utcnow()
 
     db.commit()

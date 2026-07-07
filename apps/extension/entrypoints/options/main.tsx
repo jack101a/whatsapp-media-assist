@@ -373,20 +373,40 @@ function Options() {
       .map((template) => ({ ...template, disabled: disabled.has(template.id) }));
   }, [form, serverTemplates]);
   const activeTemplates = useMemo(() => allTemplates.filter((template) => !template.disabled), [allTemplates]);
-  const imageTemplates = useMemo(() => allTemplates.filter((template) => template.category === 'image_defaults'), [allTemplates]);
-  const activeImageTemplates = useMemo(() => activeTemplates.filter((template) => template.category === 'image_defaults'), [activeTemplates]);
+  const imageTemplates = useMemo(() => allTemplates.filter((template) => ['image_defaults', 'crop', 'resize', 'compress'].includes(template.category)), [allTemplates]);
+  const activeImageTemplates = useMemo(() => activeTemplates.filter((template) => ['image_defaults', 'crop', 'resize', 'compress'].includes(template.category)), [activeTemplates]);
   const cropTemplates = useMemo(() => imageTemplates.filter((template) => {
+    if (template.category === 'crop') return true;
+    if (template.category !== 'image_defaults') return false;
     const ratio = template.payload.defaultCropRatio;
     return ratio && ratio !== 'free' && ratio !== 'original';
   }), [imageTemplates]);
   const activeCropTemplates = useMemo(() => activeImageTemplates.filter((template) => {
+    if (template.category === 'crop') return true;
+    if (template.category !== 'image_defaults') return false;
     const ratio = template.payload.defaultCropRatio;
     return ratio && ratio !== 'free' && ratio !== 'original';
   }), [activeImageTemplates]);
-  const resizeTemplates = useMemo(() => imageTemplates.filter((template) => template.payload.defaultWidth || template.payload.defaultHeight), [imageTemplates]);
-  const compressTemplates = useMemo(() => imageTemplates.filter((template) => template.payload.defaultMaxKB || template.payload.defaultQuality || template.payload.defaultFormat), [imageTemplates]);
-  const activeResizeTemplates = useMemo(() => activeImageTemplates.filter((template) => template.payload.defaultWidth || template.payload.defaultHeight), [activeImageTemplates]);
-  const activeCompressTemplates = useMemo(() => activeImageTemplates.filter((template) => template.payload.defaultMaxKB || template.payload.defaultQuality || template.payload.defaultFormat), [activeImageTemplates]);
+  const resizeTemplates = useMemo(() => imageTemplates.filter((template) => {
+    if (template.category === 'resize') return true;
+    if (template.category !== 'image_defaults') return false;
+    return template.payload.defaultWidth || template.payload.defaultHeight;
+  }), [imageTemplates]);
+  const activeResizeTemplates = useMemo(() => activeImageTemplates.filter((template) => {
+    if (template.category === 'resize') return true;
+    if (template.category !== 'image_defaults') return false;
+    return template.payload.defaultWidth || template.payload.defaultHeight;
+  }), [activeImageTemplates]);
+  const compressTemplates = useMemo(() => imageTemplates.filter((template) => {
+    if (template.category === 'compress') return true;
+    if (template.category !== 'image_defaults') return false;
+    return template.payload.defaultMaxKB || template.payload.defaultQuality || template.payload.defaultFormat;
+  }), [imageTemplates]);
+  const activeCompressTemplates = useMemo(() => activeImageTemplates.filter((template) => {
+    if (template.category === 'compress') return true;
+    if (template.category !== 'image_defaults') return false;
+    return template.payload.defaultMaxKB || template.payload.defaultQuality || template.payload.defaultFormat;
+  }), [activeImageTemplates]);
   const mergeTemplates = useMemo(() => allTemplates.filter((template) => template.category === 'merge_pdf'), [allTemplates]);
   const activeMergeTemplates = useMemo(() => activeTemplates.filter((template) => template.category === 'merge_pdf'), [activeTemplates]);
   const pipelineTemplates = useMemo(() => allTemplates.filter((template) => template.category === 'pipelines'), [allTemplates]);
@@ -470,6 +490,9 @@ function Options() {
     }
 
     const templatePatch =
+      template.category === 'crop' ? pickSettingsPatch(template.payload, CROP_TEMPLATE_KEYS) :
+      template.category === 'resize' ? pickSettingsPatch(template.payload, RESIZE_TEMPLATE_KEYS) :
+      template.category === 'compress' ? pickSettingsPatch(template.payload, COMPRESS_TEMPLATE_KEYS) :
       template.category === 'image_defaults' ? pickSettingsPatch(template.payload, IMAGE_TEMPLATE_KEYS) :
       template.category === 'merge_pdf' ? pickSettingsPatch(template.payload, MERGE_TEMPLATE_KEYS) :
       null;
